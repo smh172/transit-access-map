@@ -1,7 +1,8 @@
-/* Job access by transit and car. Layer 1: jobs reachable within 30 minutes, by mode.
-   Layer 2: block-group characteristics (income, car-free households) for the filters.
-   Data: data/metros.json (metro list, color breaks) and data/bg/<metro>.json (block groups), written by
-   build_layer1b.py; data/acs/<metro>.json (census values by block group), written by build_layer2_acs.py. */
+/* Access by transit and car.
+   Layer 1: jobs reachable within 30 minutes, by mode (data/metros.json, data/bg/<metro>.json; build_layer1b.py).
+   Layer 2: block-group characteristics for the filters (data/acs/<metro>.json; build_layer2_acs.py).
+   Layer 3: essential services reachable within 45 minutes, by mode (data/svc/index.json, data/svc/<metro>.json;
+   build_layer3_services.py). */
 (() => {
   'use strict';
 
@@ -9,6 +10,7 @@
   const PALETTE = ['#972622', '#bc4a41', '#d3786e', '#e1a79f', '#edd4d1',
                    '#cadfe6', '#91c0d1', '#59a1b9', '#2b8099', '#045f76'];
   const NO_VALUE = '#c9cccb';
+  const NONE_TRANSIT = '#4f5b61';   // car vs. transit: transit reaches none while a car reaches some
   const STYLE_URL = 'https://tiles.openfreemap.org/styles/positron';
   const US_BOUNDS = [[-124.8, 24.4], [-66.9, 49.4]];
   const LOAD_ZOOM = 6.5;   // block groups load from this zoom
@@ -20,14 +22,12 @@
   const FILTERED_OUT = '#9aa3a6';
   const QUARTERS = { 1: 'lowest-income quarter', 2: 'second quarter by income', 3: 'third quarter by income', 4: 'highest-income quarter' };
 
-  const MODES = {
-    t: { title: 'Jobs reachable within 30 minutes by transit', low: 'Fewer jobs', high: 'More jobs', reverse: false },
-    c: { title: 'Jobs reachable within 30 minutes by car, with no traffic', low: 'Fewer jobs', high: 'More jobs', reverse: false },
-    r: { title: 'How many times more jobs a car reaches than transit', low: 'Smaller car advantage', high: 'Larger car advantage', reverse: true },
-  };
+  // What the map counts: jobs (layer 1) or one of the essential services (layer 3, from data/svc/index.json).
+  const JOBS = { key: 'j', label: 'Jobs', noun: 'jobs', one: 'job', tau: 30 };
 
   const S = {
-    meta: null, bySlug: new Map(), mode: 'r', scale: 'all', viewBreaks: null,
+    meta: null, svc: null, layers: [JOBS], layer: 'j',
+    bySlug: new Map(), mode: 'r', scale: 'all', viewBreaks: null,
     loaded: new Map(), pending: new Map(), features: [], index: new Map(), tick: 0,
     hover: null, hoverProps: null, pinned: null, pinnedProps: null, hoverMetro: null,
     hold: null, onMap: false, filter: { iq: 0, zv: 0 },
@@ -41,6 +41,10 @@
   const setStatus = (msg) => { $('#status').textContent = msg; };
   const trimZero = (s) => s.replace(/\.0$/, '');
 
+  const lay = () => S.layers.find((L) => L.key === S.layer) || JOBS;
+  const isJobs = () => S.layer === 'j';
+  const k = (m) => (isJobs() ? m : S.layer + m);   // a measure's property name in the current layer
+
   function compact(v) {
     if (v >= 1e6) return trimZero((v / 1e6).toFixed(v >= 1e7 ? 0 : 1)) + 'M';
     if (v >= 1e3) return trimZero((v / 1e3).toFixed(v >= 1e4 ? 0 : 1)) + 'k';
@@ -48,7 +52,7 @@
   }
   const ratioText = (r) => (r >= 10 ? fmt.format(Math.round(r)) : r.toFixed(1));
 
-  // Two significant figures, as in build_layer1.py.
+  // Two significant figures, as in the build scripts.
   function nice(x) {
     if (x <= 0) return 0;
     const mag = Math.pow(10, Math.floor(Math.log10(x)) - 1);
@@ -62,9 +66,27 @@
     return res.json();
   }
 
+  // ---------- what each view shows ----------
+  function title(mode) {
+    const L = lay();
+    if (mode === 't') return `${L.label} reachable within ${L.tau} minutes by transit`;
+    if (mode === 'c') return `${L.label} reachable within ${L.tau} minutes by car, with no traffic`;
+    return `How many times more ${L.noun} a car reaches than transit`;
+  }
+  const ends = (mode) => (mode === 'r' ? ['Smaller car advantage', 'Larger car advantage']
+    : [`Fewer ${lay().noun}`, `More ${lay().noun}`]);
+
   // ---------- colors ----------
-  const palette = () => (MODES[S.mode].reverse ? PALETTE.slice().reverse() : PALETTE);
-  const breaks = () => (S.scale === 'view' && S.viewBreaks) || S.meta.scales[S.mode];
+  // Jobs use tenths (or the tenths of the block groups on screen); a service uses its fixed classes.
+  const breaks = () => (isJobs() ? (S.scale === 'view' && S.viewBreaks) || S.meta.scales[S.mode] : lay().classes[S.mode]);
+
+  // One color per class; with fewer than ten classes the colors are spread across the palette.
+  function classColors() {
+    const pal = S.mode === 'r' ? PALETTE.slice().reverse() : PALETTE;
+    const n = breaks().length + 1;
+    if (n >= pal.length) return pal.slice(0, n);
+    return Array.from({ length: n }, (_, i) => pal[Math.round((i * (pal.length - 1)) / (n - 1))]);
+  }
 
   // ---------- filters (layer 2): income quarter within the metro, share of households without a car ----------
   const filterOn = () => S.filter.iq > 0 || S.filter.zv > 0;
@@ -78,10 +100,15 @@
   }
 
   function fillColor() {
-    const pal = palette();
-    const step = ['step', ['to-number', ['get', S.mode]], pal[0]];
-    breaks().forEach((b, i) => step.push(b, pal[i + 1]));
-    const color = ['case', ['==', ['typeof', ['get', S.mode]], 'number'], step, NO_VALUE];
+    const cols = classColors();
+    const prop = ['get', k(S.mode)];
+    const step = ['step', ['to-number', prop], cols[0]];
+    breaks().forEach((b, i) => step.push(b, cols[i + 1]));
+    let color = ['case', ['==', ['typeof', prop], 'number'], step, NO_VALUE];
+    if (S.mode === 'r') {
+      color = ['case', ['all', ['==', ['coalesce', ['get', k('t')], -1], 0], ['>', ['coalesce', ['get', k('c')], 0], 0]],
+        NONE_TRANSIT, color];
+    }
     const mx = matchExpr();
     return mx ? ['case', mx, color, FILTERED_OUT] : color;
   }
@@ -101,7 +128,7 @@
   }
 
   function updateViewBreaks() {
-    if (S.scale !== 'view' || !map.getLayer('bg-fill')) return;
+    if (!isJobs() || S.scale !== 'view' || !map.getLayer('bg-fill')) return;
     const seen = new Set();
     const vals = [];
     for (const f of map.queryRenderedFeatures({ layers: ['bg-fill'] })) {
@@ -130,38 +157,55 @@
   // ---------- legend ----------
   function renderLegend() {
     if (!S.meta) return;
-    const md = MODES[S.mode];
-    const label = S.mode === 'r' ? (v) => `${compact(v)}&times;` : compact;
-    const viewOn = S.scale === 'view';
-    const note = (viewOn
-      ? (S.viewBreaks ? 'Each color holds about a tenth of the block groups on screen.'
-        : 'Zoom in to a metro to rescale the colors to the screen.')
-      : `Each color holds about a tenth of the block groups in all ${S.meta.counts.metros_mapped} metros.`
-    ) + (filterOn() ? ' Block groups outside the filter are faded.' : '');
+    const L = lay();
+    const jobs = isJobs();
+    const label = S.mode === 'r' ? (v) => `${compact(v)}&times;` : (jobs ? compact : (v) => fmt.format(v));
+    const viewOn = jobs && S.scale === 'view';
+    const cols = classColors();
+    const n = cols.length;
+    let note;
+    if (jobs) {
+      note = viewOn
+        ? (S.viewBreaks ? 'Each color holds about a tenth of the block groups on screen.'
+          : 'Zoom in to a metro to rescale the colors to the screen.')
+        : `Each color holds about a tenth of the block groups in all ${S.meta.counts.metros_mapped} metros.`;
+    } else if (S.mode === 'r') {
+      note = 'Each color holds about a tenth of the block groups that reach at least one by transit.';
+    } else if (breaks()[0] === 1) {
+      note = `The first color is none within ${L.tau} minutes; the others split the rest into groups of about equal size.`;
+    } else {
+      note = 'Each color holds about a tenth of the block groups.';
+    }
+    if (S.mode === 'r') note += ` Dark gray: none by transit within ${L.tau} minutes.`;
+    if (filterOn()) note += ' Block groups outside the filter are faded.';
+    const [low, high] = ends(S.mode);
     $('#legend').innerHTML = `
-      <div class="lg-title">${md.title}</div>
-      <div class="lg-bar">${palette().map((c) => `<span style="background:${c}"></span>`).join('')}</div>
-      <div class="lg-ticks">${breaks().map((b, i) => `<span style="left:${(i + 1) * 10}%">${label(b)}</span>`).join('')}</div>
-      <div class="lg-ends"><span>${md.low}</span><span>${md.high}</span></div>
+      <div class="lg-title">${title(S.mode)}</div>
+      <div class="lg-bar">${cols.map((c) => `<span style="background:${c}"></span>`).join('')}</div>
+      <div class="lg-ticks">${breaks().map((b, i) => `<span style="left:${((i + 1) / n) * 100}%">${label(b)}</span>`).join('')}</div>
+      <div class="lg-ends"><span>${low}</span><span>${high}</span></div>
       <div class="lg-controls">
-        <span class="lg-label">Colors</span>
+        ${jobs ? `<span class="lg-label">Colors</span>
         <div class="seg small" role="group" aria-label="Color scale">
           <button type="button" data-scale="all" aria-pressed="${!viewOn}">All metros</button>
           <button type="button" data-scale="view" aria-pressed="${viewOn}">This view</button>
-        </div>
-        <span class="lg-nodata"><i></i>No value</span>
+        </div>` : ''}
+        <span class="lg-keys">
+          ${S.mode === 'r' ? `<span class="lg-key"><i style="background:${NONE_TRANSIT}"></i>None by transit</span>` : ''}
+          <span class="lg-key"><i style="background:${NO_VALUE}"></i>No value</span>
+        </span>
       </div>
       <div class="lg-note">${note}</div>`;
   }
 
-  // ---------- the block group card ----------
+  // ---------- the cards ----------
   const shortName = (name) => name.split(/[-,/]/)[0].trim();
   const andList = (a) => (a.length < 3 ? a.join(' and ') : `${a.slice(0, -1).join(', ')} and ${a[a.length - 1]}`);
   const median = (a) => {
     if (!a.length) return NaN;
     const s = a.slice().sort((x, y) => x - y);
-    const k = s.length >> 1;
-    return s.length % 2 ? s[k] : (s[k - 1] + s[k]) / 2;
+    const i = s.length >> 1;
+    return s.length % 2 ? s[i] : (s[i - 1] + s[i]) / 2;
   };
 
   // The census values of a block group (layer 2): income, its quarter within the metro, car-free households.
@@ -179,18 +223,18 @@
 
   // With a filter on, the metro card counts the matching block groups of a loaded metro.
   function filterSummary(m) {
-    const L = S.loaded.get(m.slug);
-    if (!L) return '<div class="fsum">Zoom in to the metro to count the block groups that match the filter.</div>';
-    const all = L.features.map((f) => f.properties);
+    const loaded = S.loaded.get(m.slug);
+    if (!loaded) return '<div class="fsum">Zoom in to the metro to count the block groups that match the filter.</div>';
+    const all = loaded.features.map((f) => f.properties);
     if (!all.some((p) => has(p.iq) || has(p.zv))) {
       return '<div class="fsum">The data have no census values for this metro, so the filter matches none of its block groups.</div>';
     }
     const sel = all.filter(matches);
     if (!sel.length) return '<div class="fsum">No block group in this metro matches the filter.</div>';
-    const t = median(sel.map((p) => p.t).filter(has));
-    const c = median(sel.map((p) => p.c).filter(has));
+    const t = median(sel.map((p) => p[k('t')]).filter(has));
+    const c = median(sel.map((p) => p[k('c')]).filter(has));
     return `<div class="fsum"><strong>${fmt.format(sel.length)}</strong> of ${fmt.format(all.length)} block groups match the
-      filter. Their median: ${fmt.format(Math.round(t))} jobs by transit${has(c) ? `, ${fmt.format(Math.round(c))} by car` : ''}.</div>`;
+      filter. Their median: ${has(t) ? fmt.format(Math.round(t)) : 'no'} ${lay().noun} by transit${has(c) ? `, ${fmt.format(Math.round(c))} by car` : ''}.</div>`;
   }
 
   function tractLabel(t) {
@@ -199,7 +243,7 @@
     return part === '00' ? String(whole) : `${whole}.${part}`;
   }
 
-  // `where` turns a percentile into the note under the value (within the metro, or among metros).
+  // `where(pct, value)` gives the note under a value (within the metro, or among metros).
   // The Lowest-Median-Highest bar shows only for a block group, not at the metro level.
   function jobsRow(key, label, v, pct, where, missing, bar = true) {
     const sel = S.mode === key ? ' selected' : '';
@@ -207,7 +251,7 @@
       return `<div class="row${sel}"><div class="row-top"><span class="row-label">${label}</span>
         <span class="row-value na">Not available</span></div><div class="row-note">${missing}</div></div>`;
     }
-    const note = has(pct) ? where(pct) : '';
+    const note = has(pct) ? where(pct, v) : '';
     return `<div class="row${sel}">
       <div class="row-top"><span class="row-label">${label}</span><span class="row-value">${fmt.format(v)}</span></div>
       ${bar && has(pct) ? `<div class="gauge" aria-hidden="true"><span class="med"></span><span class="mark" style="left:${Math.min(100, Math.max(0, pct))}%"></span></div>
@@ -216,23 +260,34 @@
   }
 
   function blockGroupHTML(p, isPinned) {
+    const L = lay();
+    const jobs = isJobs();
     const m = S.bySlug.get(p.m) || { name: '', n_c: 1 };
     const g = String(p.g);
     const metro = shortName(m.name);
-    const inMetro = (x) => (x === 0 ? `The lowest in the ${esc(metro)} metro`
+    const inMetro = (x, v) => (!jobs && v === 0 ? `None within ${L.tau} minutes`
+      : x === 0 ? `The lowest in the ${esc(metro)} metro`
       : `Higher than ${x}% of block groups in the ${esc(metro)} metro`);
     const state = S.meta.states[g.slice(0, 2)] || '';
+    const t = p[k('t')];
+    const c = p[k('c')];
+    const r = p[k('r')];
     let rv = null;
     let rn;
-    if (has(p.r)) {
-      rv = `${ratioText(p.r)}&times;`;
-      rn = p.r >= 1 ? `A car reaches ${ratioText(p.r)} times as many jobs as transit.`
-        : 'Transit reaches more jobs than a car here.';
-    } else if (p.t === 0) {
-      rn = 'No jobs are reachable by transit within 30 minutes.';
+    if (has(r)) {
+      rv = `${ratioText(r)}&times;`;
+      rn = r >= 1 ? `A car reaches ${ratioText(r)} times as many ${L.noun} as transit.`
+        : `Transit reaches more ${L.noun} than a car here.`;
+    } else if (t === 0 && has(c) && c > 0) {
+      rv = 'None by transit';
+      rn = `Transit reaches none within ${L.tau} minutes; a car reaches ${fmt.format(c)}.`;
+    } else if (t === 0) {
+      rn = `Neither mode reaches ${jobs ? 'any jobs' : `a ${L.one}`} within ${L.tau} minutes.`;
     } else {
       rn = 'This needs both a transit and a car value.';
     }
+    const near = jobs ? '' : `<div class="nb-row near"><span>Nearest ${L.one} by transit</span>
+        <strong>${!has(p[k('n')]) ? 'None within 90 minutes' : p[k('n')] === 0 ? 'In this block group' : `${p[k('n')]} minutes`}</strong></div>`;
     return `<div class="card card-bg">
       <div class="card-head">
         <span class="level level-bg">Block group</span>
@@ -241,15 +296,16 @@
         ${filterOn() && !matches(p) ? '<div class="out-note">Outside the filter</div>' : ''}
         ${isPinned ? '<button type="button" class="unpin" aria-label="Clear the selected block group">&times;</button>' : ''}
       </div>
-      <div class="section-title">Jobs within 30 minutes</div>
-      ${jobsRow('t', 'By transit', p.t, p.tp, inMetro, 'No transit value for this block group.')}
-      ${jobsRow('c', 'By car, no traffic', p.c, p.cp, inMetro,
+      <div class="section-title">${L.label} within ${L.tau} minutes</div>
+      ${jobsRow('t', 'By transit', t, p[k('tp')], inMetro, 'No transit value for this block group.')}
+      ${jobsRow('c', 'By car, no traffic', c, p[k('cp')], inMetro,
         m.n_c === 0 ? 'This metro has no car travel times.' : 'No car value for this block group.')}
       <div class="row${S.mode === 'r' ? ' selected' : ''}">
         <div class="row-top"><span class="row-label">Car vs. transit</span>
-          ${rv ? `<span class="row-value">${rv}</span>` : '<span class="row-value na">No value</span>'}</div>
+          ${rv ? `<span class="row-value${has(r) ? '' : ' na'}">${rv}</span>` : '<span class="row-value na">No value</span>'}</div>
         <div class="row-note">${rn}</div>
       </div>
+      ${near}
       <div class="section-title">Neighborhood, 2018–22</div>
       ${neighborhoodHTML(p, metro)}
     </div>`;
@@ -284,32 +340,45 @@
         ${m.latest_usable_year}, and the map starts at ${S.meta.year_min}.</p>
       </div>`;
     }
+    const L = lay();
+    const jobs = isJobs();
+    const sv = jobs ? m : S.svc.metros[m.slug][S.layer];   // the metro's median block group and its ranks
     const q = m.quarters.length;
-    const jobs = m.jobs_year < S.meta.year_car
-      ? `Jobs are from ${m.jobs_year}, the latest year the Census Bureau publishes for this state.`
-      : `Jobs are from ${m.jobs_year}.`;
-    // The metro as a whole: its median block group, placed among the mapped metros.
-    const nWith = (k) => S.meta.metros.filter((x) => x.mapped && has(x.median[k])).length;
-    const among = (k) => (x) => (x === 0 ? `The lowest of the ${nWith(k)} metros`
-      : `Higher than in ${x}% of the ${nWith(k)} metros`);
-    const r = m.median.r;
-    const rNote = !has(r) ? 'This metro has no car travel times.'
-      : m.pct.r === 0 ? `The smallest car advantage of the ${nWith('r')} metros`
-      : `A larger car advantage than in ${m.pct.r}% of the ${nWith('r')} metros`;
+    const asOf = jobs
+      ? (m.jobs_year < S.meta.year_car
+        ? `Jobs are from ${m.jobs_year}, the latest year the Census Bureau publishes for this state.`
+        : `Jobs are from ${m.jobs_year}.`)
+      : `${L.label} as of ${Math.min(m.year, L.car_last_year)}.`;
+    const nWith = (key) => (jobs
+      ? S.meta.metros.filter((x) => x.mapped && has(x.median[key])).length
+      : Object.values(S.svc.metros).filter((v) => has(v[S.layer].median[key])).length);
+    const among = (key) => (x, v) => (!jobs && v === 0 ? `The median block group reaches none within ${L.tau} minutes`
+      : x === 0 ? `The lowest of the ${nWith(key)} metros`
+      : `Higher than in ${x}% of the ${nWith(key)} metros`);
+    const r = sv.median.r;
+    let rNote;
+    if (!has(r)) rNote = m.n_c === 0 ? 'This metro has no car travel times.' : `No block group reaches one by transit within ${L.tau} minutes.`;
+    else rNote = (sv.pct.r === 0 ? `The smallest car advantage of the ${nWith('r')} metros`
+      : `A larger car advantage than in ${sv.pct.r}% of the ${nWith('r')} metros`)
+      + (jobs ? '' : ', among block groups that reach at least one by transit');
+    const extra = jobs ? '' : `<p class="facts">${sv.reach}% of block groups reach at least one ${L.one} by transit within
+      ${L.tau} minutes. ${has(sv.near) ? `Where one is within 90 minutes, the median trip to the nearest takes ${sv.near} minutes.`
+      : `No block group has one within 90 minutes by transit.`}</p>`;
     return `<div class="card card-metro">
       <div class="card-head"><span class="level level-metro">Metro overview</span>
         <div class="place">${esc(m.name)}</div></div>
-      <div class="section-title">Jobs within 30 minutes, median block group</div>
-      ${jobsRow('t', 'By transit', m.median.t, m.pct.t, among('t'), 'No transit values for this metro.', false)}
-      ${jobsRow('c', 'By car, no traffic', m.median.c, m.pct.c, among('c'), 'This metro has no car travel times.', false)}
+      <div class="section-title">${L.label} within ${L.tau} minutes, median block group</div>
+      ${jobsRow('t', 'By transit', sv.median.t, sv.pct.t, among('t'), 'No transit values for this metro.', false)}
+      ${jobsRow('c', 'By car, no traffic', sv.median.c, sv.pct.c, among('c'), 'This metro has no car travel times.', false)}
       <div class="row${S.mode === 'r' ? ' selected' : ''}">
         <div class="row-top"><span class="row-label">Car vs. transit</span>
           ${has(r) ? `<span class="row-value">${ratioText(r)}&times;</span>` : '<span class="row-value na">No value</span>'}</div>
         <div class="row-note">${rNote}</div>
       </div>
+      ${extra}
       ${filterOn() ? filterSummary(m) : ''}
       <p class="facts">${fmt.format(m.n_bg)} block groups. Transit times use ${q === 4 ? 'all four' : q} quarter${q === 1 ? '' : 's'}
-      of ${m.year} schedules. ${jobs}</p>
+      of ${m.year} schedules. ${asOf}</p>
     </div>
     <p class="hint">Hover over a block group to compare it with the rest of the metro. Click one to keep it here.</p>`;
   }
@@ -360,6 +429,28 @@
     while (S.loaded.size > MAX_LOADED) S.loaded.delete(oldest.shift()[0]);
   }
 
+  // Joins a metro's census values (layer 2) and service values (layer 3) to its block groups.
+  function joinLayers(pr, acs, svc) {
+    const a = acs[pr.g];   // [median household income, income quarter in the metro, % of households without a car]
+    if (a) {
+      if (a[0] !== null) pr.inc = a[0];
+      if (a[1] !== null) pr.iq = a[1];
+      if (a[2] !== null) pr.zv = a[2];
+    }
+    const v = svc[pr.g];   // for each service in index order: transit, car, transit rank, car rank, nearest minutes
+    if (v && S.svc) {
+      S.svc.layers.forEach((L, i) => {
+        const [t, c, tp, cp, n] = v.slice(5 * i, 5 * i + 5);
+        if (t !== null) pr[`${L.key}t`] = t;
+        if (c !== null) pr[`${L.key}c`] = c;
+        if (tp !== null) pr[`${L.key}tp`] = tp;
+        if (cp !== null) pr[`${L.key}cp`] = cp;
+        if (n !== null) pr[`${L.key}n`] = n;
+        if (t > 0 && c !== null) pr[`${L.key}r`] = c / t;
+      });
+    }
+  }
+
   function loadMetro(m) {
     if (S.loaded.has(m.slug)) {
       S.loaded.get(m.slug).used = ++S.tick;
@@ -367,19 +458,13 @@
     }
     if (S.pending.has(m.slug)) return S.pending.get(m.slug);
     setStatus(`Loading ${m.name}…`);
-    // The census layer is optional: if its file fails, the map still draws the metro.
-    const census = getJSON(`data/acs/${m.slug}.json`).catch((err) => { console.error(err); return {}; });
-    const p = Promise.all([getJSON(`data/bg/${m.slug}.json`), census])
-      .then(([data, acs]) => {
+    // The census and service layers are optional: if their files fail, the map still draws the metro.
+    const optional = (url) => getJSON(url).catch((err) => { console.error(err); return {}; });
+    const p = Promise.all([getJSON(`data/bg/${m.slug}.json`), optional(`data/acs/${m.slug}.json`), optional(`data/svc/${m.slug}.json`)])
+      .then(([data, acs, svc]) => {
         for (const f of data.features) {
-          const pr = f.properties;
-          pr.m = m.slug;
-          const a = acs[pr.g];   // [median household income, income quarter in the metro, % of households without a car]
-          if (a) {
-            if (a[0] !== null) pr.inc = a[0];
-            if (a[1] !== null) pr.iq = a[1];
-            if (a[2] !== null) pr.zv = a[2];
-          }
+          f.properties.m = m.slug;
+          joinLayers(f.properties, acs, svc);
         }
         S.loaded.set(m.slug, { features: data.features, used: ++S.tick });
         evict();
@@ -468,6 +553,16 @@
       `${andList(noCar)} ${noCar.length === 1 ? 'has' : 'have'} no car travel times.`;
   }
 
+  // The layer toggle at the top: jobs or one of the essential services.
+  function setLayer(key) {
+    if (key !== 'j' && !S.svc) return;
+    S.layer = key;
+    document.querySelectorAll('[data-layer]').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.layer === key)));
+    if (key !== 'j' && S.scale === 'view') { S.scale = 'all'; S.viewBreaks = null; }
+    if (S.scale === 'view') updateViewBreaks(); else applyColors();
+  }
+  document.querySelectorAll('[data-layer]').forEach((b) => b.addEventListener('click', () => setLayer(b.dataset.layer)));
+
   document.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => {
     S.mode = b.dataset.mode;
     document.querySelectorAll('[data-mode]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
@@ -481,8 +576,29 @@
     S.filter = { iq: Number($('#f-income').value) || 0, zv: Number($('#f-car').value) || 0 };
     $('#f-income').classList.toggle('active', S.filter.iq > 0);
     $('#f-car').classList.toggle('active', S.filter.zv > 0);
+    const n = (S.filter.iq > 0) + (S.filter.zv > 0);
+    $('#filters-count').hidden = n === 0;
+    $('#filters-count').textContent = String(n);
+    $('#filters-toggle').classList.toggle('active', n > 0);
     if (S.scale === 'view') updateViewBreaks(); else applyColors();
   }));
+
+  // The filters sit in a pop-out on the right of the map.
+  function setFiltersOpen(open) {
+    $('#filters-panel').hidden = !open;
+    $('#filters-toggle').setAttribute('aria-expanded', String(open));
+    if (open) $('#f-income').focus();
+  }
+  $('#filters-toggle').addEventListener('click', () => setFiltersOpen($('#filters-panel').hidden));
+  $('#filters-close').addEventListener('click', () => { setFiltersOpen(false); $('#filters-toggle').focus(); });
+  $('#filters-clear').addEventListener('click', () => {
+    $('#f-income').value = '0';
+    $('#f-car').value = '0';
+    $('#f-income').dispatchEvent(new Event('change'));
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !$('#filters-panel').hidden) setFiltersOpen(false);
+  });
 
   $('#legend').addEventListener('click', (e) => {
     const b = e.target.closest('[data-scale]');
@@ -494,6 +610,18 @@
 
   $('#card').addEventListener('click', (e) => { if (e.target.closest('.unpin')) unpin(); });
   $('#about-open').addEventListener('click', () => $('#about').showModal());
+
+  // The welcome window opens on a viewer's first visit; "About this map" reopens it.
+  const WELCOME_KEY = 'transit-access-map:welcome-seen';
+  const welcome = $('#welcome');
+  $('#welcome-open').addEventListener('click', () => welcome.showModal());
+  $('#welcome-data').addEventListener('click', () => { welcome.close(); $('#about').showModal(); });
+  welcome.addEventListener('close', () => {
+    try { localStorage.setItem(WELCOME_KEY, '1'); } catch (err) { /* storage unavailable: show it again next time */ }
+  });
+  let welcomeSeen = false;
+  try { welcomeSeen = localStorage.getItem(WELCOME_KEY) === '1'; } catch (err) { welcomeSeen = false; }
+  if (!welcomeSeen) welcome.showModal();
 
   $('#search').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -545,7 +673,7 @@
   }), 'bottom-right');
   map.on('error', (e) => console.warn(e && e.error ? e.error.message : e));
 
-  // The metro list loads alongside the basemap, so the menu and the About text fill in early.
+  // The metro list and the services index load alongside the basemap, so the menu and the About text fill in early.
   const metaReady = getJSON('data/metros.json').then((meta) => {
     S.meta = meta;
     meta.metros.forEach((m) => S.bySlug.set(m.slug, m));
@@ -555,10 +683,21 @@
     fillCoverage();
     return meta;
   });
+  const svcReady = getJSON('data/svc/index.json')
+    .then((ix) => {
+      S.svc = ix;
+      S.layers = [JOBS, ...ix.layers.map((L) => ({ ...L, noun: L.label.toLowerCase() }))];
+      document.querySelectorAll('[data-layer]').forEach((b) => { b.disabled = false; });
+    })
+    .catch((err) => {   // without the services index, the map shows jobs only
+      console.error(err);
+      document.querySelectorAll('[data-layer]').forEach((b) => { b.disabled = b.dataset.layer !== 'j'; });
+    });
 
   map.on('load', async () => {
     try {
       await metaReady;
+      await svcReady;
     } catch (err) {
       console.error(err);
       setStatus('The map data could not be loaded.');
