@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Job Access by Transit and Car</title>
+  <meta name="description" content="How many jobs residents of each block group can reach within 30 minutes by transit and by car, in 84 U.S. metropolitan areas.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
+  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+  <link href="style.css" rel="stylesheet">
+</head>
+<body>
+  <div id="app">
+    <aside id="panel" aria-label="Map controls and block group details">
+      <header class="brand">
+        <h1>Job access by transit and car</h1>
+        <p class="sub">Block groups in <span id="n-metros">84</span> U.S. metros, <span id="years">2023–2025</span></p>
+      </header>
+
+      <div class="panel-body">
+        <form id="search" role="search" autocomplete="off">
+          <label class="visually-hidden" for="q">Search for an address or place</label>
+          <input id="q" type="search" placeholder="Search for an address or place" spellcheck="false">
+          <button type="submit" aria-label="Search">
+            <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M13 13l4.5 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </button>
+        </form>
+
+        <label class="field-label" for="metro">Metro</label>
+        <select id="metro"><option value="">Choose a metro</option></select>
+        <p id="status" class="status" role="status" aria-live="polite"></p>
+
+        <div class="modes">
+          <div class="section-title" id="modes-label">Map shows</div>
+          <div class="seg" role="group" aria-labelledby="modes-label">
+            <button type="button" data-mode="t" aria-pressed="false">By transit</button>
+            <button type="button" data-mode="c" aria-pressed="false">By car</button>
+            <button type="button" data-mode="r" aria-pressed="true">Car vs. transit</button>
+          </div>
+        </div>
+
+        <section id="card" aria-live="polite"></section>
+      </div>
+
+      <footer class="panel-foot">
+        <button type="button" id="about-open" class="link">About the data</button>
+      </footer>
+    </aside>
+
+    <div id="stage">
+      <div id="map" role="region" aria-label="Map of block groups"></div>
+      <div id="legend" aria-label="Legend"></div>
+    </div>
+  </div>
+
+  <dialog id="about" aria-labelledby="about-title">
+    <form method="dialog" class="about-close"><button aria-label="Close">&times;</button></form>
+    <h2 id="about-title">About the data</h2>
+    <p>Each block group is colored by the number of jobs its residents can reach within 30 minutes by transit or by car, or by how many times more jobs a car reaches.</p>
+    <h3>Transit</h3>
+    <p>Door-to-door trips by walking and transit, including the walk, the wait, the ride and any transfer. The time is the median over departures between 7:00 and 9:00 a.m. on one weekday per quarter, routed on the transit schedules archived for that day. The value is the average over the usable quarters of the metro's latest year with usable schedules, which is 2025 for most metros (see Coverage).</p>
+    <h3>Car</h3>
+    <p>Driving times on the street network with no traffic. The car counts are an upper bound, since real trips at rush hour are slower.</p>
+    <h3>Jobs</h3>
+    <p>All jobs in the Census Bureau's LODES, counted at their workplaces, in 2023, the latest year available when the data were built. The transit values for 2024 and 2025 also count 2023's jobs, so both modes count the same jobs. LODES has no data after 2016 for Alaska or after 2021 for Michigan, so the metros in those states count jobs from those years.</p>
+    <h3>Colors</h3>
+    <p>Each color holds about a tenth of the block groups. Red is below the median block group and teal is above it. With "This view", the tenths are recomputed for the block groups on screen. On the car vs. transit map the colors run the other way, so red marks the largest car advantage.</p>
+    <h3>Coverage</h3>
+    <p id="about-coverage"></p>
+    <h3>Source</h3>
+    <p>The access data are from Sierra Arnold, <a href="https://smh172.github.io/evolution-transit-access/evolution_transit_access.pdf" target="_blank" rel="noopener">"The Evolution of Transit Access to Jobs in American Cities"</a>, which describes the sources and methods.</p>
+    <h3>Credits</h3>
+    <p class="small">Transit schedules include data from <a href="https://www.transit.land/terms" target="_blank" rel="noopener">Transitland</a>, the Mobility Database and the Southeastern Pennsylvania Transportation Authority. Street network data &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>, available under the Open Database License. Jobs from the U.S. Census Bureau, LEHD Origin-Destination Employment Statistics (LODES 8). Boundaries from the Census Bureau's 2020 cartographic boundary files. Routing was run on resources of the Ohio Supercomputer Center. Basemap by OpenFreeMap and OpenMapTiles. Address search by Nominatim.</p>
+  </dialog>
+
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
