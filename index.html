@@ -41,6 +41,30 @@
           </div>
         </div>
 
+        <div class="filters">
+          <div class="section-title">Filter block groups</div>
+          <div class="filter-grid">
+            <label class="filter-label">Income in the metro
+              <select id="f-income" autocomplete="off">
+                <option value="0" selected>All incomes</option>
+                <option value="1">Lowest quarter</option>
+                <option value="2">Second quarter</option>
+                <option value="3">Third quarter</option>
+                <option value="4">Highest quarter</option>
+              </select>
+            </label>
+            <label class="filter-label">Share of households without a car
+              <select id="f-car" autocomplete="off">
+                <option value="0" selected>All shares</option>
+                <option value="10">10% or more</option>
+                <option value="20">20% or more</option>
+                <option value="30">30% or more</option>
+                <option value="40">40% or more</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
         <section id="card" aria-live="polite"></section>
       </div>
 
@@ -65,6 +89,8 @@
     <p>Driving times on the street network with no traffic. The car counts are an upper bound, since real trips at rush hour are slower.</p>
     <h3>Jobs</h3>
     <p>All jobs in the Census Bureau's LODES, counted at their workplaces, in 2023, the latest year available when the data were built. The transit values for 2024 and 2025 also count 2023's jobs, so both modes count the same jobs. LODES has no data after 2016 for Alaska or after 2021 for Michigan, so the metros in those states count jobs from those years.</p>
+    <h3>Filters</h3>
+    <p>The filters use the Census Bureau's American Community Survey, 2018–22 five-year estimates: median household income (table B19013) and the share of households with no vehicle available (table B25044). The income filter splits each metro's block groups into four equal groups by median household income. The data have no census values for Hartford, Jacksonville, Palm Bay or Riverside, and the survey does not report an income for some small block groups; the filters leave those block groups out.</p>
     <h3>Colors</h3>
     <p>Each color holds about a tenth of the block groups. Red is below the median block group and teal is above it. With "This view", the tenths are recomputed for the block groups on screen. On the car vs. transit map the colors run the other way, so red marks the largest car advantage.</p>
     <h3>Coverage</h3>
@@ -72,7 +98,7 @@
     <h3>Source</h3>
     <p>The access data are from Sierra Arnold, <a href="https://smh172.github.io/evolution-transit-access/evolution_transit_access.pdf" target="_blank" rel="noopener">"The Evolution of Transit Access to Jobs in American Cities"</a>, which describes the sources and methods.</p>
     <h3>Credits</h3>
-    <p class="small">Transit schedules include data from <a href="https://www.transit.land/terms" target="_blank" rel="noopener">Transitland</a>, the Mobility Database and the Southeastern Pennsylvania Transportation Authority. Street network data &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>, available under the Open Database License. Jobs from the U.S. Census Bureau, LEHD Origin-Destination Employment Statistics (LODES 8). Boundaries from the Census Bureau's 2020 cartographic boundary files. Routing was run on resources of the Ohio Supercomputer Center. Basemap by OpenFreeMap and OpenMapTiles. Address search by Nominatim.</p>
+    <p class="small">Transit schedules include data from <a href="https://www.transit.land/terms" target="_blank" rel="noopener">Transitland</a>, the Mobility Database and the Southeastern Pennsylvania Transportation Authority. Street network data &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>, available under the Open Database License. Jobs from the U.S. Census Bureau, LEHD Origin-Destination Employment Statistics (LODES 8). Income and vehicles from the Census Bureau's American Community Survey, 2018–22. Boundaries from the Census Bureau's 2020 cartographic boundary files. Routing was run on resources of the Ohio Supercomputer Center. Basemap by OpenFreeMap and OpenMapTiles. Address search by Nominatim.</p>
   </dialog>
 
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>

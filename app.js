@@ -1,6 +1,7 @@
 /* Job access by transit and car. Layer 1: jobs reachable within 30 minutes, by mode.
-   Data: data/metros.json (metro list, color breaks) and data/bg/<metro>.json (block groups),
-   both written by build_layer1.py. */
+   Layer 2: block-group characteristics (income, car-free households) for the filters.
+   Data: data/metros.json (metro list, color breaks) and data/bg/<metro>.json (block groups), written by
+   build_layer1b.py; data/acs/<metro>.json (census values by block group), written by build_layer2_acs.py. */
 (() => {
   'use strict';
 
@@ -13,6 +14,11 @@
   const LOAD_ZOOM = 6.5;   // block groups load from this zoom
   const MAX_LOADED = 8;    // metros kept in memory
   const MIN_VIEW = 30;     // block groups needed on screen to rescale the colors
+  const HOLD_PX = 40;      // pointer travel that releases a chosen metro's summary
+  const DOTS_UNTIL = 7.3;  // zoom at which the metro circles have faded out
+  const BG_FROM = 6;       // block groups fade in from this zoom and are hidden below it
+  const FILTERED_OUT = '#9aa3a6';
+  const QUARTERS = { 1: 'lowest-income quarter', 2: 'second quarter by income', 3: 'third quarter by income', 4: 'highest-income quarter' };
 
   const MODES = {
     t: { title: 'Jobs reachable within 30 minutes by transit', low: 'Fewer jobs', high: 'More jobs', reverse: false },
@@ -23,7 +29,8 @@
   const S = {
     meta: null, bySlug: new Map(), mode: 'r', scale: 'all', viewBreaks: null,
     loaded: new Map(), pending: new Map(), features: [], index: new Map(), tick: 0,
-    hover: null, hoverProps: null, pinned: null, pinnedProps: null,
+    hover: null, hoverProps: null, pinned: null, pinnedProps: null, hoverMetro: null,
+    hold: null, onMap: false, filter: { iq: 0, zv: 0 },
   };
 
   const $ = (sel) => document.querySelector(sel);
@@ -59,16 +66,36 @@
   const palette = () => (MODES[S.mode].reverse ? PALETTE.slice().reverse() : PALETTE);
   const breaks = () => (S.scale === 'view' && S.viewBreaks) || S.meta.scales[S.mode];
 
+  // ---------- filters (layer 2): income quarter within the metro, share of households without a car ----------
+  const filterOn = () => S.filter.iq > 0 || S.filter.zv > 0;
+  const matches = (p) => (!S.filter.iq || p.iq === S.filter.iq) && (!S.filter.zv || (has(p.zv) && p.zv >= S.filter.zv));
+
+  function matchExpr() {
+    const parts = [];
+    if (S.filter.iq) parts.push(['==', ['coalesce', ['get', 'iq'], 0], S.filter.iq]);
+    if (S.filter.zv) parts.push(['>=', ['coalesce', ['get', 'zv'], -1], S.filter.zv]);
+    return parts.length ? ['all', ...parts] : null;
+  }
+
   function fillColor() {
     const pal = palette();
     const step = ['step', ['to-number', ['get', S.mode]], pal[0]];
     breaks().forEach((b, i) => step.push(b, pal[i + 1]));
-    return ['case', ['==', ['typeof', ['get', S.mode]], 'number'], step, NO_VALUE];
+    const color = ['case', ['==', ['typeof', ['get', S.mode]], 'number'], step, NO_VALUE];
+    const mx = matchExpr();
+    return mx ? ['case', mx, color, FILTERED_OUT] : color;
+  }
+
+  // Block groups fade in above BG_FROM, so a zoomed-out map shows only the metro circles.
+  function fillOpacity() {
+    const mx = matchExpr();
+    return ['interpolate', ['linear'], ['zoom'], BG_FROM, 0, LOAD_ZOOM, mx ? ['case', mx, 0.88, 0.15] : 0.88];
   }
 
   function applyColors() {
     if (!S.meta || !map.getLayer('bg-fill')) return;
     map.setPaintProperty('bg-fill', 'fill-color', fillColor());
+    map.setPaintProperty('bg-fill', 'fill-opacity', fillOpacity());
     renderLegend();
     renderCard();
   }
@@ -80,6 +107,7 @@
     for (const f of map.queryRenderedFeatures({ layers: ['bg-fill'] })) {
       if (seen.has(f.id)) continue;
       seen.add(f.id);
+      if (filterOn() && !matches(f.properties)) continue;   // rescale to the block groups the filter keeps
       const v = f.properties[S.mode];
       if (has(v)) vals.push(v);
     }
@@ -105,10 +133,11 @@
     const md = MODES[S.mode];
     const label = S.mode === 'r' ? (v) => `${compact(v)}&times;` : compact;
     const viewOn = S.scale === 'view';
-    const note = viewOn
+    const note = (viewOn
       ? (S.viewBreaks ? 'Each color holds about a tenth of the block groups on screen.'
         : 'Zoom in to a metro to rescale the colors to the screen.')
-      : `Each color holds about a tenth of the block groups in all ${S.meta.counts.metros_mapped} metros.`;
+      : `Each color holds about a tenth of the block groups in all ${S.meta.counts.metros_mapped} metros.`
+    ) + (filterOn() ? ' Block groups outside the filter are faded.' : '');
     $('#legend').innerHTML = `
       <div class="lg-title">${md.title}</div>
       <div class="lg-bar">${palette().map((c) => `<span style="background:${c}"></span>`).join('')}</div>
@@ -128,6 +157,41 @@
   // ---------- the block group card ----------
   const shortName = (name) => name.split(/[-,/]/)[0].trim();
   const andList = (a) => (a.length < 3 ? a.join(' and ') : `${a.slice(0, -1).join(', ')} and ${a[a.length - 1]}`);
+  const median = (a) => {
+    if (!a.length) return NaN;
+    const s = a.slice().sort((x, y) => x - y);
+    const k = s.length >> 1;
+    return s.length % 2 ? s[k] : (s[k - 1] + s[k]) / 2;
+  };
+
+  // The census values of a block group (layer 2): income, its quarter within the metro, car-free households.
+  function neighborhoodHTML(p, metro) {
+    if (!has(p.inc) && !has(p.zv)) {
+      return '<div class="row-note nb-none">The census reports no income or vehicle values for this block group.</div>';
+    }
+    const q = has(p.iq) ? `In the ${QUARTERS[p.iq]} of the ${esc(metro)} metro's block groups` : '';
+    return `<div class="nb">
+        <div class="nb-row"><span>Median household income</span><strong>${has(p.inc) ? `$${fmt.format(p.inc)}` : 'Not reported'}</strong></div>
+        ${q ? `<div class="row-note">${q}</div>` : ''}
+        <div class="nb-row"><span>Share of households without a car</span><strong>${has(p.zv) ? `${trimZero(p.zv.toFixed(1))}%` : 'Not reported'}</strong></div>
+      </div>`;
+  }
+
+  // With a filter on, the metro card counts the matching block groups of a loaded metro.
+  function filterSummary(m) {
+    const L = S.loaded.get(m.slug);
+    if (!L) return '<div class="fsum">Zoom in to the metro to count the block groups that match the filter.</div>';
+    const all = L.features.map((f) => f.properties);
+    if (!all.some((p) => has(p.iq) || has(p.zv))) {
+      return '<div class="fsum">The data have no census values for this metro, so the filter matches none of its block groups.</div>';
+    }
+    const sel = all.filter(matches);
+    if (!sel.length) return '<div class="fsum">No block group in this metro matches the filter.</div>';
+    const t = median(sel.map((p) => p.t).filter(has));
+    const c = median(sel.map((p) => p.c).filter(has));
+    return `<div class="fsum"><strong>${fmt.format(sel.length)}</strong> of ${fmt.format(all.length)} block groups match the
+      filter. Their median: ${fmt.format(Math.round(t))} jobs by transit${has(c) ? `, ${fmt.format(Math.round(c))} by car` : ''}.</div>`;
+  }
 
   function tractLabel(t) {
     const whole = parseInt(t.slice(0, 4), 10);
@@ -135,26 +199,28 @@
     return part === '00' ? String(whole) : `${whole}.${part}`;
   }
 
-  function jobsRow(key, label, v, pct, metro, missing) {
+  // `where` turns a percentile into the note under the value (within the metro, or among metros).
+  // The Lowest-Median-Highest bar shows only for a block group, not at the metro level.
+  function jobsRow(key, label, v, pct, where, missing, bar = true) {
     const sel = S.mode === key ? ' selected' : '';
     if (!has(v)) {
       return `<div class="row${sel}"><div class="row-top"><span class="row-label">${label}</span>
         <span class="row-value na">Not available</span></div><div class="row-note">${missing}</div></div>`;
     }
-    const where = !has(pct) ? ''
-      : pct === 0 ? `The lowest in the ${esc(metro)} metro`
-      : `Higher than ${pct}% of block groups in the ${esc(metro)} metro`;
+    const note = has(pct) ? where(pct) : '';
     return `<div class="row${sel}">
       <div class="row-top"><span class="row-label">${label}</span><span class="row-value">${fmt.format(v)}</span></div>
-      <div class="gauge" aria-hidden="true"><span class="med"></span><span class="mark" style="left:${Math.min(100, Math.max(0, pct))}%"></span></div>
-      <div class="gauge-labels" aria-hidden="true"><span>Lowest</span><span>Median</span><span>Highest</span></div>
-      <div class="row-note">${where}</div></div>`;
+      ${bar && has(pct) ? `<div class="gauge" aria-hidden="true"><span class="med"></span><span class="mark" style="left:${Math.min(100, Math.max(0, pct))}%"></span></div>
+      <div class="gauge-labels" aria-hidden="true"><span>Lowest</span><span>Median</span><span>Highest</span></div>` : ''}
+      <div class="row-note">${note}</div></div>`;
   }
 
   function blockGroupHTML(p, isPinned) {
     const m = S.bySlug.get(p.m) || { name: '', n_c: 1 };
     const g = String(p.g);
     const metro = shortName(m.name);
+    const inMetro = (x) => (x === 0 ? `The lowest in the ${esc(metro)} metro`
+      : `Higher than ${x}% of block groups in the ${esc(metro)} metro`);
     const state = S.meta.states[g.slice(0, 2)] || '';
     let rv = null;
     let rn;
@@ -167,21 +233,26 @@
     } else {
       rn = 'This needs both a transit and a car value.';
     }
-    return `
+    return `<div class="card card-bg">
       <div class="card-head">
-        <div class="kicker">${esc(m.name)}</div>
+        <span class="level level-bg">Block group</span>
         <div class="place">Block group ${g.slice(11)}, tract ${tractLabel(g.slice(5, 11))}, ${esc(state)}</div>
+        <div class="kicker">${esc(m.name)}</div>
+        ${filterOn() && !matches(p) ? '<div class="out-note">Outside the filter</div>' : ''}
         ${isPinned ? '<button type="button" class="unpin" aria-label="Clear the selected block group">&times;</button>' : ''}
       </div>
       <div class="section-title">Jobs within 30 minutes</div>
-      ${jobsRow('t', 'By transit', p.t, p.tp, metro, 'No transit value for this block group.')}
-      ${jobsRow('c', 'By car, no traffic', p.c, p.cp, metro,
+      ${jobsRow('t', 'By transit', p.t, p.tp, inMetro, 'No transit value for this block group.')}
+      ${jobsRow('c', 'By car, no traffic', p.c, p.cp, inMetro,
         m.n_c === 0 ? 'This metro has no car travel times.' : 'No car value for this block group.')}
       <div class="row${S.mode === 'r' ? ' selected' : ''}">
         <div class="row-top"><span class="row-label">Car vs. transit</span>
           ${rv ? `<span class="row-value">${rv}</span>` : '<span class="row-value na">No value</span>'}</div>
         <div class="row-note">${rn}</div>
-      </div>`;
+      </div>
+      <div class="section-title">Neighborhood, 2018–22</div>
+      ${neighborhoodHTML(p, metro)}
+    </div>`;
   }
 
   function metroAt(lng, lat) {
@@ -203,30 +274,44 @@
 
   function summaryHTML() {
     if (!S.meta) return '';
-    const m = metroAtCenter();
-    if (!m) {
-      const years = S.meta.metros.filter((x) => x.mapped).map((x) => x.year);
-      const last = S.meta.years_transit[1];
-      const nLast = years.filter((y) => y === last).length;
-      const earlier = [...new Set(years.filter((y) => y !== last))].sort().join(' or ');
-      return `<p class="hint">Choose a metro or search for an address, then hover over a neighborhood.</p>
-        <p class="facts">The circles mark the ${S.meta.counts.metros_mapped} metros on the map. Each is shown at its latest
-        year of usable transit schedules: ${last} for ${nLast} of them${earlier ? ` and ${earlier} for the other ${years.length - nLast}` : ''}.</p>`;
-    }
+    const m = S.hoverMetro || metroAtCenter();
+    if (!m) return '<p class="hint">Choose a metro or search for an address, then hover over a neighborhood.</p>';
     if (!m.mapped) {
-      return `<div class="kicker">${esc(m.name)}</div>
+      return `<div class="card card-metro">
+        <div class="card-head"><span class="level level-metro">Metro overview</span>
+          <div class="place">${esc(m.name)}</div></div>
         <p class="hint">This metro is not on the map. Its latest usable transit schedules are from
-        ${m.latest_usable_year}, and the map starts at ${S.meta.year_min}.</p>`;
+        ${m.latest_usable_year}, and the map starts at ${S.meta.year_min}.</p>
+      </div>`;
     }
     const q = m.quarters.length;
     const jobs = m.jobs_year < S.meta.year_car
       ? `Jobs are from ${m.jobs_year}, the latest year the Census Bureau publishes for this state.`
       : `Jobs are from ${m.jobs_year}.`;
-    return `<div class="kicker">${esc(m.name)}</div>
-      <p class="hint">Hover over a block group to see how many jobs its residents can reach within 30 minutes.
-      Click one to keep it here.</p>
+    // The metro as a whole: its median block group, placed among the mapped metros.
+    const nWith = (k) => S.meta.metros.filter((x) => x.mapped && has(x.median[k])).length;
+    const among = (k) => (x) => (x === 0 ? `The lowest of the ${nWith(k)} metros`
+      : `Higher than in ${x}% of the ${nWith(k)} metros`);
+    const r = m.median.r;
+    const rNote = !has(r) ? 'This metro has no car travel times.'
+      : m.pct.r === 0 ? `The smallest car advantage of the ${nWith('r')} metros`
+      : `A larger car advantage than in ${m.pct.r}% of the ${nWith('r')} metros`;
+    return `<div class="card card-metro">
+      <div class="card-head"><span class="level level-metro">Metro overview</span>
+        <div class="place">${esc(m.name)}</div></div>
+      <div class="section-title">Jobs within 30 minutes, median block group</div>
+      ${jobsRow('t', 'By transit', m.median.t, m.pct.t, among('t'), 'No transit values for this metro.', false)}
+      ${jobsRow('c', 'By car, no traffic', m.median.c, m.pct.c, among('c'), 'This metro has no car travel times.', false)}
+      <div class="row${S.mode === 'r' ? ' selected' : ''}">
+        <div class="row-top"><span class="row-label">Car vs. transit</span>
+          ${has(r) ? `<span class="row-value">${ratioText(r)}&times;</span>` : '<span class="row-value na">No value</span>'}</div>
+        <div class="row-note">${rNote}</div>
+      </div>
+      ${filterOn() ? filterSummary(m) : ''}
       <p class="facts">${fmt.format(m.n_bg)} block groups. Transit times use ${q === 4 ? 'all four' : q} quarter${q === 1 ? '' : 's'}
-      of ${m.year} schedules. ${jobs}${m.n_c === 0 ? ' This metro has no car travel times.' : ''}</p>`;
+      of ${m.year} schedules. ${jobs}</p>
+    </div>
+    <p class="hint">Hover over a block group to compare it with the rest of the metro. Click one to keep it here.</p>`;
   }
 
   function renderCard() {
@@ -282,9 +367,20 @@
     }
     if (S.pending.has(m.slug)) return S.pending.get(m.slug);
     setStatus(`Loading ${m.name}…`);
-    const p = getJSON(`data/bg/${m.slug}.json`)
-      .then((data) => {
-        for (const f of data.features) f.properties.m = m.slug;
+    // The census layer is optional: if its file fails, the map still draws the metro.
+    const census = getJSON(`data/acs/${m.slug}.json`).catch((err) => { console.error(err); return {}; });
+    const p = Promise.all([getJSON(`data/bg/${m.slug}.json`), census])
+      .then(([data, acs]) => {
+        for (const f of data.features) {
+          const pr = f.properties;
+          pr.m = m.slug;
+          const a = acs[pr.g];   // [median household income, income quarter in the metro, % of households without a car]
+          if (a) {
+            if (a[0] !== null) pr.inc = a[0];
+            if (a[1] !== null) pr.iq = a[1];
+            if (a[2] !== null) pr.zv = a[2];
+          }
+        }
         S.loaded.set(m.slug, { features: data.features, used: ++S.tick });
         evict();
         rebuild();
@@ -312,7 +408,26 @@
       .forEach(loadMetro);
   }
 
+  function clearHover() {
+    if (S.hover !== null) map.setFeatureState({ source: 'bgs', id: S.hover }, { hover: false });
+    S.hover = null;
+    S.hoverProps = null;
+  }
+
+  // Choosing a metro shows the metro as a whole: any kept block group is let go, and when the pointer
+  // is over the map, block groups under it wait until it has clearly moved.
+  function showMetro() {
+    clearHover();
+    S.hoverMetro = null;
+    S.hold = S.onMap ? { x: null, y: null } : null;
+    unpin();
+  }
+
+  const overDot = (point) => map.getLayer('metro-dots') && map.getZoom() < DOTS_UNTIL
+    && map.queryRenderedFeatures(point, { layers: ['metro-dots'] }).length > 0;
+
   function goToMetro(m) {
+    showMetro();
     const cam = map.cameraForBounds([[m.bbox[0], m.bbox[1]], [m.bbox[2], m.bbox[3]]], { padding: 40, maxZoom: 11 });
     // A metro spread over a large area (Anchorage) would fit below the zoom at which block groups load,
     // so it opens on its block groups' mean location instead.
@@ -356,6 +471,16 @@
   document.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => {
     S.mode = b.dataset.mode;
     document.querySelectorAll('[data-mode]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    if (S.scale === 'view') updateViewBreaks(); else applyColors();
+  }));
+
+  // The page opens unfiltered: all incomes, all shares (a browser may otherwise restore an earlier choice).
+  $('#f-income').value = '0';
+  $('#f-car').value = '0';
+  ['#f-income', '#f-car'].forEach((id) => $(id).addEventListener('change', () => {
+    S.filter = { iq: Number($('#f-income').value) || 0, zv: Number($('#f-car').value) || 0 };
+    $('#f-income').classList.toggle('active', S.filter.iq > 0);
+    $('#f-car').classList.toggle('active', S.filter.zv > 0);
     if (S.scale === 'view') updateViewBreaks(); else applyColors();
   }));
 
@@ -411,6 +536,8 @@
     dragRotate: false, pitchWithRotate: false, touchPitch: false,
   });
   map.touchZoomRotate.disableRotation();
+  map.getCanvasContainer().addEventListener('mouseenter', () => { S.onMap = true; });
+  map.getCanvasContainer().addEventListener('mouseleave', () => { S.onMap = false; });
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
   map.addControl(new maplibregl.AttributionControl({
     compact: true,
@@ -440,12 +567,12 @@
 
     const firstSymbol = (map.getStyle().layers.find((l) => l.type === 'symbol') || {}).id;
     map.addSource('bgs', { type: 'geojson', data: collection([]) });
-    map.addLayer({ id: 'bg-fill', type: 'fill', source: 'bgs',
-      paint: { 'fill-color': fillColor(), 'fill-opacity': 0.88 } }, firstSymbol);
-    map.addLayer({ id: 'bg-edge', type: 'line', source: 'bgs',
+    map.addLayer({ id: 'bg-fill', type: 'fill', source: 'bgs', minzoom: BG_FROM,
+      paint: { 'fill-color': fillColor(), 'fill-opacity': fillOpacity() } }, firstSymbol);
+    map.addLayer({ id: 'bg-edge', type: 'line', source: 'bgs', minzoom: BG_FROM,
       paint: { 'line-color': '#ffffff', 'line-opacity': 0.6,
         'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0, 11, 0.35, 14, 0.9] } }, firstSymbol);
-    map.addLayer({ id: 'bg-focus', type: 'line', source: 'bgs',
+    map.addLayer({ id: 'bg-focus', type: 'line', source: 'bgs', minzoom: BG_FROM,
       paint: { 'line-color': '#0f2329',
         'line-width': ['case', ['boolean', ['feature-state', 'hover'], false], 2.5,
           ['boolean', ['feature-state', 'pinned'], false], 2.5, 0] } });
@@ -458,15 +585,15 @@
       properties: { slug: m.slug, size: Math.sqrt(m.n_bg / maxN) },
       geometry: { type: 'Point', coordinates: m.center },
     }))) });
-    map.addLayer({ id: 'metro-dots', type: 'circle', source: 'metros', maxzoom: 8,
+    map.addLayer({ id: 'metro-dots', type: 'circle', source: 'metros', maxzoom: DOTS_UNTIL,
       paint: {
         'circle-radius': ['interpolate', ['linear'], ['zoom'],
           3, ['+', 3, ['*', 6, ['get', 'size']]], 7, ['+', 5, ['*', 10, ['get', 'size']]]],
         'circle-color': '#045f76',
         'circle-stroke-color': '#ffffff',
         'circle-stroke-width': 1.5,
-        'circle-opacity': ['interpolate', ['linear'], ['zoom'], 6.5, 0.95, 8, 0],
-        'circle-stroke-opacity': ['interpolate', ['linear'], ['zoom'], 6.5, 1, 8, 0],
+        'circle-opacity': ['interpolate', ['linear'], ['zoom'], 6.5, 0.95, DOTS_UNTIL, 0],
+        'circle-stroke-opacity': ['interpolate', ['linear'], ['zoom'], 6.5, 1, DOTS_UNTIL, 0],
       } });
 
     const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 10 });
@@ -474,18 +601,34 @@
       const m = S.bySlug.get(e.features[0].properties.slug);
       map.getCanvas().style.cursor = 'pointer';
       popup.setLngLat(m.center)
-        .setHTML(`<strong>${esc(m.name)}</strong>${fmt.format(m.n_bg)} block groups, ${m.year} schedules. Click to zoom in.`)
+        .setHTML(`<strong>${esc(m.name)}</strong>Click to zoom in.`)
         .addTo(map);
+      if (S.hoverMetro !== m) { S.hoverMetro = m; renderCard(); }   // the panel shows the metro as a whole
     });
-    map.on('mouseleave', 'metro-dots', () => { map.getCanvas().style.cursor = ''; popup.remove(); });
+    map.on('mouseleave', 'metro-dots', () => {
+      map.getCanvas().style.cursor = '';
+      popup.remove();
+      S.hoverMetro = null;
+      renderCard();
+    });
     map.on('click', 'metro-dots', (e) => {
       popup.remove();
+      S.hoverMetro = null;
       goToMetro(S.bySlug.get(e.features[0].properties.slug));
     });
 
     map.on('mousemove', 'bg-fill', (e) => {
       const f = e.features && e.features[0];
       if (!f) return;
+      if (overDot(e.point)) {   // a metro circle sits on top: the panel shows that metro
+        if (S.hover !== null) { clearHover(); renderCard(); }
+        return;
+      }
+      if (S.hold) {             // a metro was just chosen: keep its summary until the pointer moves on
+        if (S.hold.x === null) { S.hold = { x: e.point.x, y: e.point.y }; return; }
+        if (Math.hypot(e.point.x - S.hold.x, e.point.y - S.hold.y) < HOLD_PX) return;
+        S.hold = null;
+      }
       map.getCanvas().style.cursor = 'pointer';
       if (S.hover === f.id) return;
       if (S.hover !== null) map.setFeatureState({ source: 'bgs', id: S.hover }, { hover: false });
@@ -503,7 +646,7 @@
     });
     map.on('click', 'bg-fill', (e) => {
       const f = e.features && e.features[0];
-      if (f) pin(f.id, f.properties);
+      if (f && !overDot(e.point)) { S.hold = null; pin(f.id, f.properties); }
     });
 
     map.on('moveend', () => {
