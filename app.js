@@ -23,6 +23,7 @@
   const HOLD_PX = 40;      // pointer travel that releases a chosen metro's summary
   const DOTS_UNTIL = 7.3;  // zoom at which the metro circles have faded out
   const BG_FROM = 6;       // block groups fade in from this zoom and are hidden below it
+  const CLICK_ZOOM = 12;   // a click on a block group zooms in to this, if the map is further out
   const FILTERED_OUT = '#9aa3a6';
   const QUARTERS = { 1: 'lowest-income quarter', 2: 'second quarter by income', 3: 'third quarter by income', 4: 'highest-income quarter' };
 
@@ -31,7 +32,7 @@
 
   const S = {
     meta: null, ix: null, layers: [JOBS], layer: 'j', tau: 30,
-    bySlug: new Map(), mode: 'r', scale: 'all', viewBreaks: null,
+    bySlug: new Map(), mode: 'r', scale: 'shared', viewBreaks: null,
     loaded: new Map(), pending: new Map(), features: [], index: new Map(), tick: 0,
     hover: null, hoverProps: null, pinned: null, pinnedProps: null, hoverMetro: null,
     hold: null, onMap: false, filter: { iq: 0, zv: 0 },
@@ -83,9 +84,11 @@
     : [`Fewer ${lay().noun}`, `More ${lay().noun}`]);
 
   // ---------- colors ----------
-  // Each layer, travel time and view has its classes (build_layer4_times.py); for jobs, "This view" can replace
-  // them with the tenths of the block groups on screen.
-  const breaks = () => (isJobs() && S.scale === 'view' && S.viewBreaks) || lay().classes[S.tau][S.mode];
+  // Color classes (build_layer4_times.py). By default ("All times", S.scale 'shared') one scale serves the four
+  // travel times, so a color means the same count at every time (Sierra, 2026-11-12). "This time" uses the
+  // chosen time's own classes; for jobs, "This view" uses the tenths of the block groups on screen.
+  const scaleKey = () => (S.scale === 'time' ? S.tau : 'all');
+  const breaks = () => (isJobs() && S.scale === 'view' && S.viewBreaks) || lay().classes[scaleKey()][S.mode];
 
   // One color per class; with fewer than ten classes the colors are spread across the palette. On the car vs.
   // transit map the colors run the other way, so the first color marks the largest car advantage.
@@ -169,9 +172,11 @@
     const jobs = isJobs();
     const label = S.mode === 'r' ? (v) => `${compact(v)}&times;` : (jobs ? compact : (v) => fmt.format(v));
     const viewOn = jobs && S.scale === 'view';
+    const shared = !viewOn && S.scale !== 'time';
     const cols = classColors();
     const n = cols.length;
-    const zero = ((L.zero || {})[S.tau] || {})[S.mode];   // none is its own class (build_layer4_times.py)
+    const zero = ((L.zero || {})[scaleKey()] || {})[S.mode];   // none is its own class (build_layer4_times.py)
+    const over = shared ? 'at the four travel times together' : `in all ${S.meta.counts.metros_mapped} metros`;
     let note;
     if (viewOn) {
       note = S.viewBreaks ? 'Each color holds about a tenth of the block groups on screen.'
@@ -181,11 +186,11 @@
         ? `The first color is none within ${S.tau} minutes, the second one or more.`
         : `The first color is none within ${S.tau} minutes; the others split the rest into groups of about equal size.`;
     } else if (S.mode === 'r' && !jobs) {
-      note = 'Each color holds about a tenth of the block groups that reach at least one by public transit.';
+      note = `Each color holds about a tenth of the block groups that reach at least one by public transit, ${over}.`;
     } else {
-      note = jobs ? `Each color holds about a tenth of the block groups in all ${S.meta.counts.metros_mapped} metros.`
-        : 'Each color holds about a tenth of the block groups.';
+      note = `Each color holds about a tenth of the block groups ${over}.`;
     }
+    if (shared) note += ' The colors are the same at every travel time.';
     if (S.mode === 'r') note += ` Dark gray: none by public transit within ${S.tau} minutes.`;
     if (filterOn()) note += ' Block groups outside the filter are faded.';
     const [low, high] = ends(S.mode);
@@ -195,11 +200,12 @@
       <div class="lg-ticks">${breaks().map((b, i) => `<span style="left:${((i + 1) / n) * 100}%">${label(b)}</span>`).join('')}</div>
       <div class="lg-ends"><span>${low}</span><span>${high}</span></div>
       <div class="lg-controls">
-        ${jobs ? `<span class="lg-label">Colors</span>
+        <span class="lg-label">Colors</span>
         <div class="seg small" role="group" aria-label="Color scale">
-          <button type="button" data-scale="all" aria-pressed="${!viewOn}">All metros</button>
-          <button type="button" data-scale="view" aria-pressed="${viewOn}">This view</button>
-        </div>` : ''}
+          <button type="button" data-scale="shared" aria-pressed="${shared}">All times</button>
+          <button type="button" data-scale="time" aria-pressed="${!viewOn && !shared}">This time</button>
+          ${jobs ? `<button type="button" data-scale="view" aria-pressed="${viewOn}">This view</button>` : ''}
+        </div>
         <span class="lg-keys">
           ${S.mode === 'r' ? `<span class="lg-key"><i style="background:${NONE_TRANSIT}"></i>None by public transit</span>` : ''}
           <span class="lg-key"><i style="background:${NO_VALUE}"></i>No value</span>
@@ -571,7 +577,7 @@
     if (!S.ix) return;
     S.layer = key;
     document.querySelectorAll('[data-layer]').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.layer === key)));
-    if (key !== 'j' && S.scale === 'view') { S.scale = 'all'; S.viewBreaks = null; }
+    if (key !== 'j' && S.scale === 'view') { S.scale = 'shared'; S.viewBreaks = null; }
     if (S.scale === 'view') updateViewBreaks(); else applyColors();
   }
   document.querySelectorAll('[data-layer]').forEach((b) => b.addEventListener('click', () => setLayer(b.dataset.layer)));
@@ -630,6 +636,20 @@
   });
 
   $('#card').addEventListener('click', (e) => { if (e.target.closest('.unpin')) unpin(); });
+
+  // The map options float over the map (Sierra, 2026-11-12: "like the opp atlas has the toggles floating") and
+  // can be hidden; on phones they move into the panel, above the card.
+  const controls = $('#controls');
+  $('#controls-toggle').addEventListener('click', () => {
+    const hide = !controls.classList.contains('collapsed');
+    controls.classList.toggle('collapsed', hide);
+    $('#controls-toggle').textContent = hide ? 'Show' : 'Hide';
+    $('#controls-toggle').setAttribute('aria-expanded', String(!hide));
+  });
+  const phone = window.matchMedia('(max-width: 760px)');
+  const placeControls = () => (phone.matches ? $('#controls-slot') : $('#stage')).appendChild(controls);
+  phone.addEventListener('change', placeControls);
+  placeControls();
   $('#about-open').addEventListener('click', () => $('#about').showModal());
 
   // The welcome window opens on every visit (Sierra, 2026-11-12); "About this map" reopens it.
@@ -684,11 +704,13 @@
   map.touchZoomRotate.disableRotation();
   map.getCanvasContainer().addEventListener('mouseenter', () => { S.onMap = true; });
   map.getCanvasContainer().addEventListener('mouseleave', () => { S.onMap = false; });
-  map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+  // The map options take the top right, so the zoom buttons sit at the bottom right, above the credits (a
+  // bottom control added later goes above one added earlier).
   map.addControl(new maplibregl.AttributionControl({
     compact: true,
     customAttribution: 'Access data: S. Arnold. Schedules include <a href="https://www.transit.land/terms" target="_blank" rel="noopener">Transitland</a> data.',
   }), 'bottom-right');
+  map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
   map.on('error', (e) => console.warn(e && e.error ? e.error.message : e));
 
   // The metro list and the travel-time index load alongside the basemap, so the menu and the About text fill in early.
@@ -799,7 +821,11 @@
     });
     map.on('click', 'bg-fill', (e) => {
       const f = e.features && e.features[0];
-      if (f && !overDot(e.point)) { S.hold = null; pin(f.id, f.properties); }
+      if (!f || overDot(e.point)) return;
+      S.hold = null;
+      pin(f.id, f.properties);
+      // Zoom in a little when the map is zoomed out (Sierra, 2026-11-12), keeping the clicked spot under the pointer.
+      if (map.getZoom() < CLICK_ZOOM - 0.5) map.easeTo({ zoom: CLICK_ZOOM, around: e.lngLat, duration: 600 });
     });
 
     map.on('moveend', () => {

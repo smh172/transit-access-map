@@ -13,7 +13,7 @@
 </head>
 <body>
   <div id="app">
-    <aside id="panel" aria-label="Map controls and block group details">
+    <aside id="panel" aria-label="Search and details">
       <header class="brand">
         <h1>Within Reach</h1>
         <p class="tagline">Access to jobs and essential services by public transit and car</p>
@@ -21,15 +21,6 @@
       </header>
 
       <div class="panel-body">
-        <div class="layers" role="group" aria-label="What the map counts">
-          <button type="button" data-layer="j" aria-pressed="true">Jobs</button>
-          <button type="button" data-layer="g" aria-pressed="false" disabled>Grocery stores</button>
-          <button type="button" data-layer="b" aria-pressed="false" disabled>Banks</button>
-          <button type="button" data-layer="h" aria-pressed="false" disabled>Hospitals</button>
-          <button type="button" data-layer="l" aria-pressed="false" disabled>Libraries</button>
-          <button type="button" data-layer="k" aria-pressed="false" disabled>Community colleges</button>
-        </div>
-
         <form id="search" role="search" autocomplete="off">
           <label class="visually-hidden" for="q">Search for an address or place</label>
           <input id="q" type="search" placeholder="Search for an address or place" spellcheck="false">
@@ -42,57 +33,7 @@
         <select id="metro"><option value="">Choose a metro</option></select>
         <p id="status" class="status" role="status" aria-live="polite"></p>
 
-        <div class="modes">
-          <div class="section-title" id="modes-label">Map shows</div>
-          <div class="seg" role="group" aria-labelledby="modes-label">
-            <button type="button" data-mode="t" aria-pressed="false">By public transit</button>
-            <button type="button" data-mode="c" aria-pressed="false">By car</button>
-            <button type="button" data-mode="r" aria-pressed="true">Car vs. public transit</button>
-          </div>
-        </div>
-
-        <div class="time">
-          <div class="time-head">
-            <label class="section-title" for="tau">Travel time</label>
-            <output id="tau-out" for="tau">30 minutes</output>
-          </div>
-          <input id="tau" type="range" min="0" max="3" step="1" value="1" autocomplete="off" disabled
-                 aria-valuetext="30 minutes">
-          <div class="time-ticks" aria-hidden="true">
-            <span style="left: 8px">15</span>
-            <span style="left: calc(8px + (100% - 16px) / 3)">30</span>
-            <span style="left: calc(8px + (100% - 16px) * 2 / 3)">45</span>
-            <span style="left: calc(100% - 8px)">60</span>
-          </div>
-        </div>
-
-        <section class="filters" aria-labelledby="filters-title">
-          <div class="filters-head">
-            <div class="section-title" id="filters-title">Filter block groups</div>
-            <button type="button" id="filters-clear" class="link" hidden>Clear</button>
-          </div>
-          <div class="filter-grid">
-            <label class="filter-label">Income in the metro
-              <select id="f-income" autocomplete="off">
-                <option value="0" selected>All incomes</option>
-                <option value="1">Lowest quarter</option>
-                <option value="2">Second quarter</option>
-                <option value="3">Third quarter</option>
-                <option value="4">Highest quarter</option>
-              </select>
-            </label>
-            <label class="filter-label">Share of households without a car
-              <select id="f-car" autocomplete="off">
-                <option value="0" selected>All shares</option>
-                <option value="10">10% or more</option>
-                <option value="20">20% or more</option>
-                <option value="30">30% or more</option>
-                <option value="40">40% or more</option>
-              </select>
-            </label>
-          </div>
-        </section>
-
+        <div id="controls-slot"></div>
         <section id="card" aria-live="polite"></section>
       </div>
 
@@ -108,6 +49,73 @@
     <div id="stage">
       <div id="map" role="region" aria-label="Map of block groups"></div>
       <div id="legend" aria-label="Legend"></div>
+      <section id="controls" aria-labelledby="controls-title">
+        <div class="controls-head">
+          <h2 id="controls-title">Map options</h2>
+          <button type="button" id="controls-toggle" class="link" aria-expanded="true" aria-controls="controls-body">Hide</button>
+        </div>
+        <div id="controls-body">
+            <div class="layers" role="group" aria-label="What the map counts">
+              <button type="button" data-layer="j" aria-pressed="true">Jobs</button>
+              <button type="button" data-layer="g" aria-pressed="false" disabled>Grocery stores</button>
+              <button type="button" data-layer="b" aria-pressed="false" disabled>Banks</button>
+              <button type="button" data-layer="h" aria-pressed="false" disabled>Hospitals</button>
+              <button type="button" data-layer="l" aria-pressed="false" disabled>Libraries</button>
+              <button type="button" data-layer="k" aria-pressed="false" disabled>Community colleges</button>
+            </div>
+
+            <div class="modes">
+              <div class="section-title" id="modes-label">Map shows</div>
+              <div class="seg" role="group" aria-labelledby="modes-label">
+                <button type="button" data-mode="t" aria-pressed="false">By public transit</button>
+                <button type="button" data-mode="c" aria-pressed="false">By car</button>
+                <button type="button" data-mode="r" aria-pressed="true">Car vs. public transit</button>
+              </div>
+            </div>
+
+            <div class="time">
+              <div class="time-head">
+                <label class="section-title" for="tau">Travel time</label>
+                <output id="tau-out" for="tau">30 minutes</output>
+              </div>
+              <input id="tau" type="range" min="0" max="3" step="1" value="1" autocomplete="off" disabled
+                     aria-valuetext="30 minutes">
+              <div class="time-ticks" aria-hidden="true">
+                <span style="left: 8px">15</span>
+                <span style="left: calc(8px + (100% - 16px) / 3)">30</span>
+                <span style="left: calc(8px + (100% - 16px) * 2 / 3)">45</span>
+                <span style="left: calc(100% - 8px)">60</span>
+              </div>
+            </div>
+
+            <section class="filters" aria-labelledby="filters-title">
+              <div class="filters-head">
+                <div class="section-title" id="filters-title">Filter block groups</div>
+                <button type="button" id="filters-clear" class="link" hidden>Clear</button>
+              </div>
+              <div class="filter-grid">
+                <label class="filter-label">Income in the metro
+                  <select id="f-income" autocomplete="off">
+                    <option value="0" selected>All incomes</option>
+                    <option value="1">Lowest quarter</option>
+                    <option value="2">Second quarter</option>
+                    <option value="3">Third quarter</option>
+                    <option value="4">Highest quarter</option>
+                  </select>
+                </label>
+                <label class="filter-label">Share of households without a car
+                  <select id="f-car" autocomplete="off">
+                    <option value="0" selected>All shares</option>
+                    <option value="10">10% or more</option>
+                    <option value="20">20% or more</option>
+                    <option value="30">30% or more</option>
+                    <option value="40">40% or more</option>
+                  </select>
+                </label>
+              </div>
+            </section>
+        </div>
+      </section>
     </div>
   </div>
 
@@ -157,7 +165,7 @@
   <dialog id="about" aria-labelledby="about-title">
     <form method="dialog" class="about-close"><button aria-label="Close">&times;</button></form>
     <h2 id="about-title">About the data</h2>
-    <p>Each block group is colored by how many jobs, or facilities of one essential service, its residents can reach within the chosen travel time, by public transit or by car, or by how many times more a car reaches. Orange is below the median block group and blue is above it; on the car vs. public transit map, orange marks the largest car advantage.</p>
+    <p>Each block group is colored by how many jobs, or facilities of one essential service, its residents can reach within the chosen travel time, by public transit or by car, or by how many times more a car reaches. Darker orange means fewer and darker blue more; on the car vs. public transit map, orange marks the largest car advantage. By default the colors are the same at every travel time, so the map changes as the slider moves. In the legend, "This time" scales them to the chosen time alone, and "This view" (for jobs) to the block groups on screen.</p>
     <h3>Trips</h3>
     <p>By public transit: door-to-door trips by walking and public transit, including waits and transfers, timed as the median over departures between 7 and 9 a.m. on one weekday per quarter, on the schedules archived for that day. Each metro shows its latest year of usable schedules. By car: driving with no traffic, so the car counts are an upper bound.</p>
     <h3>What is counted</h3>
