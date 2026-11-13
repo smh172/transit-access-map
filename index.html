@@ -5,6 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Within Reach: Access to Jobs and Essential Services by Public Transit and Car</title>
   <meta name="description" content="How many jobs, grocery stores, banks, hospitals, libraries and community colleges the residents of each block group can reach by public transit and by car, in 84 U.S. metropolitan areas. By Sierra Arnold, Xavier University.">
+  <!-- the preview shown when the link is shared (Sierra, 2026-11-12, "yes 1-4 sound good") -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Within Reach: Access to Jobs and Essential Services by Public Transit and Car">
+  <meta property="og:description" content="How many jobs, grocery stores, banks, hospitals, libraries and community colleges the residents of each block group can reach by public transit and by car, in 84 U.S. metropolitan areas. By Sierra Arnold, Xavier University.">
+  <meta property="og:url" content="https://smh172.github.io/transit-access-map/">
+  <meta property="og:image" content="https://smh172.github.io/transit-access-map/preview.jpg">
+  <meta property="og:image:width" content="800">
+  <meta property="og:image:height" content="420">
+  <meta property="og:image:alt" content="A map of Chicago's block groups colored by how many times more jobs a car reaches than public transit within 30 minutes">
+  <meta name="twitter:card" content="summary_large_image">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
@@ -39,9 +49,7 @@
 
       <footer class="panel-foot">
         <button type="button" id="welcome-open" class="link">About this map</button>
-        <span class="dot" aria-hidden="true">·</span>
         <button type="button" id="about-open" class="link">About the data</button>
-        <span class="dot" aria-hidden="true">·</span>
         <button type="button" id="contact-open" class="link">Contact</button>
       </footer>
     </aside>
@@ -65,12 +73,12 @@
             </div>
 
             <div class="modes">
-              <div class="section-title" id="modes-label">Map shows</div>
-              <div class="seg" role="group" aria-labelledby="modes-label">
-                <button type="button" data-mode="t" aria-pressed="false">By public transit</button>
-                <button type="button" data-mode="c" aria-pressed="false">By car</button>
-                <button type="button" data-mode="r" aria-pressed="true">Car vs. public transit</button>
-              </div>
+              <label class="section-title" for="mode-select">Map shows</label>
+              <select id="mode-select" autocomplete="off">
+                <option value="t">By public transit</option>
+                <option value="c">By car</option>
+                <option value="r" selected>Car vs. public transit</option>
+              </select>
             </div>
 
             <div class="time">
@@ -165,7 +173,7 @@
   <dialog id="about" aria-labelledby="about-title">
     <form method="dialog" class="about-close"><button aria-label="Close">&times;</button></form>
     <h2 id="about-title">About the data</h2>
-    <p>Each block group is colored by how many jobs, or facilities of one essential service, its residents can reach within the chosen travel time, by public transit or by car, or by how many times more a car reaches. Darker orange means fewer and darker blue more; on the car vs. public transit map, orange marks the largest car advantage. By default the colors are the same at every travel time, so the map changes as the slider moves. In the legend, "This time" scales them to the chosen time alone, and "This view" (for jobs) to the block groups on screen.</p>
+    <p>Each block group is colored by how many jobs, or facilities of one essential service, its residents can reach within the chosen travel time, by public transit or by car, or by how many times more a car reaches. Darker orange means fewer and darker blue more; on the car vs. public transit map, orange marks the largest car advantage. By default the colors are the same at every travel time, so the map changes as the slider moves. The color scale menu in the legend can instead fit them to the chosen travel time or, for jobs, to what is on screen.</p>
     <h3>Trips</h3>
     <p>By public transit: door-to-door trips by walking and public transit, including waits and transfers, timed as the median over departures between 7 and 9 a.m. on one weekday per quarter, on the schedules archived for that day. Each metro shows its latest year of usable schedules. By car: driving with no traffic, so the car counts are an upper bound.</p>
     <h3>What is counted</h3>

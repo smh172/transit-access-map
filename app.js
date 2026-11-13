@@ -92,12 +92,12 @@
 
   // One color per class; with fewer than ten classes the colors are spread across the palette. On the car vs.
   // transit map the colors run the other way, so the first color marks the largest car advantage.
-  function classColors() {
+  function colorsFor(n) {
     const pal = S.mode === 'r' ? PALETTE.slice().reverse() : PALETTE;
-    const n = breaks().length + 1;
     if (n >= pal.length) return pal.slice(0, n);
     return Array.from({ length: n }, (_, i) => pal[Math.round((i * (pal.length - 1)) / (n - 1))]);
   }
+  const classColors = () => colorsFor(breaks().length + 1);
 
   // ---------- filters (layer 2): income quarter within the metro, share of households without a car ----------
   const filterOn = () => S.filter.iq > 0 || S.filter.zv > 0;
@@ -136,6 +136,87 @@
     map.setPaintProperty('bg-fill', 'fill-opacity', fillOpacity());
     renderLegend();
     renderCard();
+    paintDots();
+    writeHash();
+  }
+
+  // ---------- the national circles: each metro's median block group, on the map's scale ----------
+  // (Sierra, 2026-11-12, "yes 1-4 sound good"). "This view" has no meaning here, so they use the shared scale.
+  function metroValue(m) {
+    const sv = S.ix.metros[m.slug][S.layer][S.tau];
+    return { v: sv.median[S.mode], t: sv.median.t, c: sv.median.c };
+  }
+  function dotData() {
+    const shown = S.meta.metros.filter((m) => m.mapped);
+    const maxN = Math.max(...shown.map((m) => m.n_bg));
+    return collection(shown.map((m) => {
+      const { v, t, c } = metroValue(m);
+      const none = S.mode === 'r' && !has(v) && t === 0 && has(c) && c > 0;
+      return { type: 'Feature', properties: { slug: m.slug, size: Math.sqrt(m.n_bg / maxN), v: has(v) ? v : null, none },
+        geometry: { type: 'Point', coordinates: m.center } };
+    }));
+  }
+  function dotColor() {
+    const br = lay().classes[S.scale === 'time' ? S.tau : 'all'][S.mode];
+    const cols = colorsFor(br.length + 1);
+    const step = ['step', ['to-number', ['get', 'v']], cols[0]];
+    br.forEach((b, i) => step.push(b, cols[i + 1]));
+    return ['case', ['==', ['get', 'none'], true], NONE_TRANSIT,
+      ['==', ['typeof', ['get', 'v']], 'number'], step, NO_VALUE];
+  }
+  function paintDots() {
+    if (!S.ix || !map.getSource('metros')) return;
+    map.getSource('metros').setData(dotData());
+    map.setPaintProperty('metro-dots', 'circle-color', dotColor());
+  }
+  function medianText(m) {
+    const L = lay();
+    const { v } = metroValue(m);
+    if (S.mode === 'r') return has(v) ? `a car reaches ${ratioText(v)} times as many ${L.noun}` : 'no ratio';
+    if (!has(v)) return 'no value';
+    return `${fmt.format(v)} ${v === 1 ? L.one : L.noun} by ${S.mode === 't' ? 'public transit' : 'car'}`;
+  }
+
+  // ---------- the link keeps the view (Sierra, 2026-11-12): the layer, view, travel time, color scale, filters
+  // and the kept block group, beside the map position that MapLibre writes as "view" ----------
+  function readHash() {
+    const out = {};
+    location.hash.replace(/^#/, '').split('&').forEach((part) => {
+      const i = part.indexOf('=');
+      if (i > 0) out[part.slice(0, i)] = part.slice(i + 1);
+    });
+    return out;
+  }
+  const HASH_ORDER = ['view', 'layer', 'mode', 'time', 'colors', 'income', 'car', 'bg'];
+  function writeHash() {
+    if (!S.ix) return;
+    const h = readHash();
+    const set = (key, val, def) => { if (val === def || val === null || val === undefined) delete h[key]; else h[key] = String(val); };
+    set('layer', S.layer, 'j');
+    set('mode', S.mode, 'r');
+    set('time', S.tau, S.ix.tau_default);
+    set('colors', S.scale, 'shared');
+    set('income', S.filter.iq, 0);
+    set('car', S.filter.zv, 0);
+    set('bg', S.pinnedProps ? S.pinnedProps.g : null, null);
+    const rank = (key) => (HASH_ORDER.includes(key) ? HASH_ORDER.indexOf(key) : 99);
+    const str = Object.keys(h).sort((a, b) => rank(a) - rank(b)).map((key) => `${key}=${h[key]}`).join('&');
+    history.replaceState(history.state, '', `${location.pathname}${location.search}${str ? `#${str}` : ''}`);
+  }
+  function applyHash() {   // on load: take the view a shared link carries
+    const h = readHash();
+    if (S.ix.layers.some((L) => L.key === h.layer)) S.layer = h.layer;
+    if (['t', 'c', 'r'].includes(h.mode)) S.mode = h.mode;
+    if (S.ix.taus.includes(Number(h.time))) S.tau = Number(h.time);
+    if (['shared', 'time', 'view'].includes(h.colors)) S.scale = h.colors === 'view' && S.layer !== 'j' ? 'shared' : h.colors;
+    if ([1, 2, 3, 4].includes(Number(h.income))) { S.filter.iq = Number(h.income); $('#f-income').value = h.income; }
+    if ([10, 20, 30, 40].includes(Number(h.car))) { S.filter.zv = Number(h.car); $('#f-car').value = h.car; }
+    if (/^\d{12}$/.test(h.bg || '')) S.pendingPin = h.bg;
+    document.querySelectorAll('[data-layer]').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.layer === S.layer)));
+    $('#mode-select').value = S.mode;
+    $('#f-income').classList.toggle('active', S.filter.iq > 0);
+    $('#f-car').classList.toggle('active', S.filter.zv > 0);
+    $('#filters-clear').hidden = !filterOn();
   }
 
   function updateViewBreaks() {
@@ -200,12 +281,12 @@
       <div class="lg-ticks">${breaks().map((b, i) => `<span style="left:${((i + 1) / n) * 100}%">${label(b)}</span>`).join('')}</div>
       <div class="lg-ends"><span>${low}</span><span>${high}</span></div>
       <div class="lg-controls">
-        <span class="lg-label">Colors</span>
-        <div class="seg small" role="group" aria-label="Color scale">
-          <button type="button" data-scale="shared" aria-pressed="${shared}">All times</button>
-          <button type="button" data-scale="time" aria-pressed="${!viewOn && !shared}">This time</button>
-          ${jobs ? `<button type="button" data-scale="view" aria-pressed="${viewOn}">This view</button>` : ''}
-        </div>
+        <label class="lg-label" for="scale-select">Color scale</label>
+        <select id="scale-select" class="lg-select">
+          <option value="shared"${shared ? ' selected' : ''}>Same for every travel time</option>
+          <option value="time"${!viewOn && !shared ? ' selected' : ''}>Fit to this travel time</option>
+          ${jobs ? `<option value="view"${viewOn ? ' selected' : ''}>Fit to what's on screen</option>` : ''}
+        </select>
         <span class="lg-keys">
           ${S.mode === 'r' ? `<span class="lg-key"><i style="background:${NONE_TRANSIT}"></i>None by public transit</span>` : ''}
           <span class="lg-key"><i style="background:${NO_VALUE}"></i>No value</span>
@@ -253,7 +334,7 @@
     const t = median(sel.map((p) => p[k('t')]).filter(has));
     const c = median(sel.map((p) => p[k('c')]).filter(has));
     return `<div class="fsum"><strong>${fmt.format(sel.length)}</strong> of ${fmt.format(all.length)} block groups match the
-      filter. Their median: ${has(t) ? fmt.format(Math.round(t)) : 'no'} ${lay().noun} by public transit${has(c) ? `, ${fmt.format(Math.round(c))} by car` : ''}.</div>`;
+      filter. Their median: ${has(t) ? fmt.format(Math.round(t)) : 'no'} ${has(t) && Math.round(t) === 1 ? lay().one : lay().noun} by public transit${has(c) ? `, ${fmt.format(Math.round(c))} by car` : ''}.</div>`;
   }
 
   function tractLabel(t) {
@@ -412,6 +493,7 @@
     S.pinnedProps = { ...props };
     map.setFeatureState({ source: 'bgs', id }, { pinned: true });
     renderCard();
+    writeHash();
   }
 
   function unpin() {
@@ -419,6 +501,7 @@
     S.pinned = null;
     S.pinnedProps = null;
     renderCard();
+    writeHash();
   }
 
   // ---------- loading metros ----------
@@ -438,6 +521,11 @@
     S.hoverProps = null;
     S.pinned = S.pinnedProps ? (S.index.has(S.pinnedProps.g) ? S.index.get(S.pinnedProps.g) : null) : null;
     if (S.pinned !== null) map.setFeatureState({ source: 'bgs', id: S.pinned }, { pinned: true });
+    if (S.pendingPin && S.index.has(S.pendingPin)) {   // the block group a shared link keeps
+      const id = S.index.get(S.pendingPin);
+      S.pendingPin = null;
+      pin(id, S.features[id].properties);
+    }
     if (S.scale === 'view') map.once('idle', updateViewBreaks);
   }
 
@@ -603,11 +691,13 @@
     if (S.scale === 'view') updateViewBreaks(); else applyColors();
   });
 
-  document.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => {
-    S.mode = b.dataset.mode;
-    document.querySelectorAll('[data-mode]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+  // "Map shows" is a menu since 2026-11-12, to keep the floating options small (Sierra: "still when you click
+  // show i think that menu is too big"); the page opens on car vs. public transit unless a link says otherwise.
+  $('#mode-select').value = S.mode;
+  $('#mode-select').addEventListener('change', (e) => {
+    S.mode = e.target.value;
     if (S.scale === 'view') updateViewBreaks(); else applyColors();
-  }));
+  });
 
   // The page opens unfiltered: all incomes, all shares (a browser may otherwise restore an earlier choice).
   $('#f-income').value = '0';
@@ -627,10 +717,11 @@
     $('#f-income').dispatchEvent(new Event('change'));
   });
 
-  $('#legend').addEventListener('click', (e) => {
-    const b = e.target.closest('[data-scale]');
-    if (!b || b.dataset.scale === S.scale) return;
-    S.scale = b.dataset.scale;
+  // The legend's color scale menu (Sierra, 2026-11-12, on the buttons it replaced: "all times this time this view
+  // is weird phrasing").
+  $('#legend').addEventListener('change', (e) => {
+    if (e.target.id !== 'scale-select' || e.target.value === S.scale) return;
+    S.scale = e.target.value;
     if (S.scale === 'view') updateViewBreaks();
     else { S.viewBreaks = null; applyColors(); }
   });
@@ -727,6 +818,7 @@
     S.tau = ix.tau_default;
     S.layers = ix.layers;
     document.querySelectorAll('[data-layer]').forEach((b) => { b.disabled = false; });
+    applyHash();
     setTauControl();
   });
 
@@ -752,19 +844,13 @@
         'line-width': ['case', ['boolean', ['feature-state', 'hover'], false], 2.5,
           ['boolean', ['feature-state', 'pinned'], false], 2.5, 0] } });
 
-    // One circle per mapped metro; metros not on the map get none.
-    const shown = S.meta.metros.filter((m) => m.mapped);
-    const maxN = Math.max(...shown.map((m) => m.n_bg));
-    map.addSource('metros', { type: 'geojson', data: collection(shown.map((m) => ({
-      type: 'Feature',
-      properties: { slug: m.slug, size: Math.sqrt(m.n_bg / maxN) },
-      geometry: { type: 'Point', coordinates: m.center },
-    }))) });
+    // One circle per mapped metro, colored by its median block group; metros not on the map get none.
+    map.addSource('metros', { type: 'geojson', data: dotData() });
     map.addLayer({ id: 'metro-dots', type: 'circle', source: 'metros', maxzoom: DOTS_UNTIL,
       paint: {
         'circle-radius': ['interpolate', ['linear'], ['zoom'],
           3, ['+', 3, ['*', 6, ['get', 'size']]], 7, ['+', 5, ['*', 10, ['get', 'size']]]],
-        'circle-color': PALETTE[9],
+        'circle-color': dotColor(),
         'circle-stroke-color': '#ffffff',
         'circle-stroke-width': 1.5,
         'circle-opacity': ['interpolate', ['linear'], ['zoom'], 6.5, 0.95, DOTS_UNTIL, 0],
@@ -776,7 +862,7 @@
       const m = S.bySlug.get(e.features[0].properties.slug);
       map.getCanvas().style.cursor = 'pointer';
       popup.setLngLat(m.center)
-        .setHTML(`<strong>${esc(m.name)}</strong>Click to zoom in.`)
+        .setHTML(`<strong>${esc(m.name)}</strong>Median block group, ${S.tau} minutes: ${medianText(m)}.<br>Click to zoom in.`)
         .addTo(map);
       if (S.hoverMetro !== m) { S.hoverMetro = m; renderCard(); }   // the panel shows the metro as a whole
     });
@@ -792,10 +878,27 @@
       goToMetro(S.bySlug.get(e.features[0].properties.slug));
     });
 
+    // A small label at the pointer with the block group's value (Sierra, 2026-11-12).
+    const tip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 14, className: 'bg-tip',
+      maxWidth: '280px' });
+    const tipText = (p) => {
+      const L = lay();
+      const t = p[k('t')];
+      const c = p[k('c')];
+      if (S.mode === 'r') {
+        const r = p[k('r')];
+        if (has(r)) return `${ratioText(r)}&times; as many ${L.noun} by car`;
+        return t === 0 && has(c) && c > 0 ? 'None by public transit' : 'No value';
+      }
+      const v = S.mode === 't' ? t : c;
+      if (!has(v)) return 'No value';
+      return `${fmt.format(v)} ${v === 1 ? L.one : L.noun} by ${S.mode === 't' ? 'public transit' : 'car'}`;
+    };
     map.on('mousemove', 'bg-fill', (e) => {
       const f = e.features && e.features[0];
       if (!f) return;
       if (overDot(e.point)) {   // a metro circle sits on top: the panel shows that metro
+        tip.remove();
         if (S.hover !== null) { clearHover(); renderCard(); }
         return;
       }
@@ -804,6 +907,7 @@
         if (Math.hypot(e.point.x - S.hold.x, e.point.y - S.hold.y) < HOLD_PX) return;
         S.hold = null;
       }
+      tip.setLngLat(e.lngLat).setHTML(tipText(f.properties)).addTo(map);
       map.getCanvas().style.cursor = 'pointer';
       if (S.hover === f.id) return;
       if (S.hover !== null) map.setFeatureState({ source: 'bgs', id: S.hover }, { hover: false });
@@ -813,6 +917,7 @@
       renderCard();
     });
     map.on('mouseleave', 'bg-fill', () => {
+      tip.remove();
       if (S.hover !== null) map.setFeatureState({ source: 'bgs', id: S.hover }, { hover: false });
       S.hover = null;
       S.hoverProps = null;

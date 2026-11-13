@@ -93,7 +93,9 @@ button, input, select { font: inherit; color: inherit; }
 /* ---------- header byline and footer links ---------- */
 .brand .byline { margin: 6px 0 0; font-size: 13px; opacity: 0.95; }
 .brand .byline a { color: #fff; text-decoration: underline; text-underline-offset: 2px; }
-.panel-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; }
+/* the three links spread evenly across the panel (Sierra, 2026-11-12: "space out the three links at the bottom
+   left correctly") */
+.panel-foot { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; }
 .panel-foot .dot { color: var(--faint); }
 a.link { color: var(--accent); font-weight: 600; text-underline-offset: 2px; }
 
@@ -114,6 +116,9 @@ a.link { color: var(--accent); font-weight: 600; text-underline-offset: 2px; }
   color: var(--muted); }
 .filter-label select { width: 100%; padding: 6px 4px; border: 1px solid #c9ccd2; border-radius: 6px; background: #fff;
   font-size: 13.5px; font-weight: 400; color: var(--ink); }
+#mode-select { width: 100%; padding: 6px 4px; border: 1px solid #c9ccd2; border-radius: 6px; background: #fff;
+  font-size: 13.5px; color: var(--ink); }
+#mode-select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus); }
 .filter-label select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus); }
 .filter-label select.active { border-color: var(--ink); background: var(--select); font-weight: 600; }
 .nb { margin: 2px 0 6px; }
@@ -165,6 +170,9 @@ a.link { color: var(--accent); font-weight: 600; text-underline-offset: 2px; }
 .lg-ends { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-top: 1px; }
 .lg-controls { display: flex; align-items: center; gap: 8px; margin-top: 7px; font-size: 12.5px; flex-wrap: wrap; }
 .lg-label { font-weight: 700; color: var(--muted); letter-spacing: 0.05em; text-transform: uppercase; font-size: 11.5px; }
+.lg-select { padding: 2px 4px; border: 1px solid #c9ccd2; border-radius: 6px; background: #fff; color: var(--ink);
+  font-size: 12.5px; }
+.lg-select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus); }
 .lg-keys { margin-left: auto; display: inline-flex; align-items: center; gap: 10px; color: var(--muted); }
 .lg-key { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .lg-key i { display: inline-block; width: 12px; height: 12px; border-radius: 2px; }
@@ -181,6 +189,11 @@ a.link { color: var(--accent); font-weight: 600; text-underline-offset: 2px; }
 
 .maplibregl-popup-content { font: 13.5px/1.35 var(--font); color: var(--ink); padding: 8px 10px; border-radius: 6px; }
 .maplibregl-popup-content strong { display: block; font-size: 14px; }
+/* the label at the pointer over a block group: small, and never in the way of the pointer */
+.bg-tip { pointer-events: none; }
+.bg-tip .maplibregl-popup-content { padding: 4px 8px; font-size: 13px; font-weight: 600;
+  box-shadow: 0 1px 6px rgba(20, 22, 28, 0.25); }
+.bg-tip .maplibregl-popup-tip { display: none; }
 .maplibregl-ctrl-attrib { font-family: var(--font); }
 
 /* ---------- about dialog ---------- */
@@ -229,6 +242,37 @@ dialog#contact { width: min(440px, calc(100vw - 32px)); }
 .btn-primary:focus-visible { outline: 3px solid rgba(29, 32, 39, 0.35); outline-offset: 2px; }
 
 .visually-hidden { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* ---------- the overlays a little smaller (Sierra, 2026-11-12: "the overlayed windows could be a little smaller,
+   font could be a little smaller so they take up less of the space"); phones keep their own sizes ---------- */
+@media (min-width: 761px) {
+  /* smaller again, with "Map shows" as a one-line menu (Sierra: "still when you click show i think that menu is
+     too big") */
+  #stage #controls { width: 252px; padding: 6px 10px 8px; }
+  #stage #controls .controls-head { margin-bottom: 5px; }
+  #stage #controls .controls-head h2 { font-size: 12.5px; }
+  #stage #controls .link { font-size: 12px; }
+  #stage #controls .layers { gap: 3px; }
+  #stage #controls .layers button { min-height: 27px; padding: 2px; font-size: 11.5px; border-radius: 6px; }
+  #stage #controls .section-title { margin: 7px 0 3px; font-size: 10.5px; }
+  #stage #controls .modes { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+  #stage #controls .modes .section-title { margin: 0; white-space: nowrap; }
+  #stage #controls #mode-select { flex: 1; min-width: 0; padding: 3px; font-size: 12px; }
+  #stage #controls .time-head output { font-size: 11.5px; }
+  #stage #controls .time-ticks { font-size: 10px; height: 12px; }
+  #stage #controls .filter-grid { gap: 6px; }
+  #stage #controls .filter-label { font-size: 10.5px; }
+  #stage #controls .filter-label select { padding: 3px 2px; font-size: 12px; }
+  #legend { width: min(500px, calc(100% - 120px)); padding: 7px 12px 6px; }
+  #legend .lg-title { font-size: 13px; margin-bottom: 5px; }
+  #legend .lg-bar { height: 10px; }
+  #legend .lg-ticks { font-size: 10.5px; height: 14px; }
+  #legend .lg-ends { font-size: 11px; }
+  #legend .lg-controls { margin-top: 5px; font-size: 11.5px; gap: 6px; }
+  #legend .lg-label { font-size: 10.5px; }
+  #legend .lg-select { font-size: 11.5px; padding: 1px 3px; }
+  #legend .lg-note { font-size: 11px; margin-top: 3px; }
+}
 
 /* ---------- phones ---------- */
 @media (max-width: 760px) {
