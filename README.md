@@ -29,8 +29,8 @@ the counts of jobs and services at each travel time in `times/`).
 Public transit schedules include data from Transitland (https://www.transit.land/terms), the Mobility Database and
 the Southeastern Pennsylvania Transportation Authority. Street network data © OpenStreetMap contributors,
 available under the Open Database License. Jobs from the U.S. Census Bureau, LEHD Origin-Destination
-Employment Statistics (LODES 8). Population, income and vehicles from the Census Bureau's American Community Survey,
-2018–22. Services from USDA (SNAP retailers), FDIC (Summary of Deposits), CMS (Provider of Services), IMLS
+Employment Statistics (LODES 8). Population, income, poverty, race and ethnicity, and vehicles from the Census
+Bureau's American Community Survey, 2018–22. Services from USDA (SNAP retailers), FDIC (Summary of Deposits), CMS (Provider of Services), IMLS
 (Public Libraries Survey) and NCES (IPEDS). Boundaries from the Census Bureau's 2020 cartographic boundary
 files. Routing was run on resources of the Ohio Supercomputer Center. Basemap by OpenFreeMap and
 OpenMapTiles. Address search by Nominatim. Map library: MapLibre GL JS.

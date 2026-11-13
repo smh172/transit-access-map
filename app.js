@@ -310,18 +310,25 @@
   };
 
   // The census values of a block group (layer 2): population and density, income, its quarter within the metro,
-  // car-free households.
+  // car-free households, and (since 2026-11-13, Sierra: "yes that sounds good") the share of people below twice the
+  // poverty line and the shares by race and ethnicity.
+  // Under one line, "Share of people who are:"
+  const PEOPLE_ROWS = [['lo', 'Below twice the poverty line'], ['sw', 'White, not Hispanic'], ['sb', 'Black, not Hispanic'],
+    ['sa', 'Asian, not Hispanic'], ['sh', 'Hispanic, any race']];
   function neighborhoodHTML(p, metro) {
-    if (!has(p.inc) && !has(p.zv) && !has(p.pop)) {
+    if (!has(p.inc) && !has(p.zv) && !has(p.pop) && !has(p.lo)) {
       return '<div class="row-note nb-none">The census reports no values for this block group.</div>';
     }
     const q = has(p.iq) ? `In the ${QUARTERS[p.iq]} of the ${esc(metro)} metro's block groups` : '';
+    const pctv = (v) => (has(v) ? `${trimZero(v.toFixed(1))}%` : 'Not reported');
     return `<div class="nb">
         <div class="nb-row"><span>Population</span><strong>${has(p.pop) ? fmt.format(p.pop) : 'Not reported'}</strong></div>
         <div class="nb-row"><span>People per square mile</span><strong>${has(p.dens) ? fmt.format(p.dens) : 'Not reported'}</strong></div>
         <div class="nb-row"><span>Median household income</span><strong>${has(p.inc) ? `$${fmt.format(p.inc)}` : 'Not reported'}</strong></div>
         ${q ? `<div class="row-note">${q}</div>` : ''}
-        <div class="nb-row"><span>Share of households without a car</span><strong>${has(p.zv) ? `${trimZero(p.zv.toFixed(1))}%` : 'Not reported'}</strong></div>
+        <div class="nb-row"><span>Share of households without a car</span><strong>${pctv(p.zv)}</strong></div>
+        ${has(p.lo) || has(p.sw) ? `<div class="row-note">Share of people who are:</div>
+        ${PEOPLE_ROWS.map(([key, label]) => `<div class="nb-row"><span>${label}</span><strong>${pctv(p[key])}</strong></div>`).join('')}` : ''}
       </div>`;
   }
 
@@ -540,6 +547,8 @@
       ${row('People per square mile', num(a.dens), num(b.dens))}
       ${row('Median household income', money(a.inc), money(b.inc))}
       ${row('Share of households without a car', share(a.zv), share(b.zv))}
+      <div class="cmp-row"><span class="cmp-label">Share of people who are:</span><span class="cmp-v"></span><span class="cmp-v"></span></div>
+      ${PEOPLE_ROWS.map(([key, label]) => row(label, share(a[key]), share(b[key]))).join('')}
       <p class="facts">"Higher than" compares each block group with the rest of its own metro.</p>
     </div>`;
   }
@@ -664,14 +673,13 @@
   // Joins a metro's census values (layer 2) and service values (layer 3) to its block groups.
   function joinLayers(pr, acs, times) {
     // [median household income, income quarter in the metro, % of households without a car, population,
-    //  people per square mile]
+    //  people per square mile, % of people below twice the poverty line, % white, Black and Asian (not Hispanic)
+    //  and Hispanic (of any race)]
     const a = acs[pr.g];
     if (a) {
-      if (a[0] !== null) pr.inc = a[0];
-      if (a[1] !== null) pr.iq = a[1];
-      if (a[2] !== null) pr.zv = a[2];
-      if (a.length > 3 && a[3] !== null) pr.pop = a[3];
-      if (a.length > 4 && a[4] !== null) pr.dens = a[4];
+      ['inc', 'iq', 'zv', 'pop', 'dens', 'lo', 'sw', 'sb', 'sa', 'sh'].forEach((key, i) => {
+        if (a.length > i && a[i] !== null) pr[key] = a[i];
+      });
     }
     // Every layer at every travel time, named by the index's fields ("j30t", "g15tp", ..., "gn"); the ratio is
     // computed here. The boundary files' own 30-minute job values are dropped, so nothing reads them by mistake.
