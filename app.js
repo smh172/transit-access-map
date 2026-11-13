@@ -37,7 +37,7 @@
     bySlug: new Map(), mode: 't', scale: 'shared', viewBreaks: null,
     loaded: new Map(), pending: new Map(), features: [], index: new Map(), tick: 0,
     hover: null, hoverProps: null, pinned: null, pinnedProps: null, hoverMetro: null,
-    hold: null, onMap: false, filter: { iq: 0, zv: 0 },
+    hold: null, onMap: false, filter: { iq: 0, zv: 0, mj: 0, lo: 0 },
     cmpId: null, cmpProps: null, picking: false, pendingPin: null, pendingCmp: null,   // comparing two block groups
   };
 
@@ -102,15 +102,27 @@
   }
   const classColors = () => colorsFor(breaks().length + 1);
 
-  // ---------- filters (layer 2): income quarter within the metro, share of households without a car ----------
-  const filterOn = () => S.filter.iq > 0 || S.filter.zv > 0;
-  const matches = (p) => (!S.filter.iq || p.iq === S.filter.iq) && (!S.filter.zv || (has(p.zv) && p.zv >= S.filter.zv));
+  // ---------- filters (layer 2): income quarter within the metro, share of households without a car, and (since
+  // 2026-11-13, Sierra: "Yes, add them") majority White or majority minority, and the share of people below twice
+  // the poverty line ----------
+  const filterOn = () => S.filter.iq > 0 || S.filter.zv > 0 || S.filter.mj > 0 || S.filter.lo > 0;
+  const matches = (p) => (!S.filter.iq || p.iq === S.filter.iq) && (!S.filter.zv || (has(p.zv) && p.zv >= S.filter.zv))
+    && (!S.filter.mj || p.mj === S.filter.mj) && (!S.filter.lo || (has(p.lo) && p.lo >= S.filter.lo));
 
   function matchExpr() {
     const parts = [];
     if (S.filter.iq) parts.push(['==', ['coalesce', ['get', 'iq'], 0], S.filter.iq]);
     if (S.filter.zv) parts.push(['>=', ['coalesce', ['get', 'zv'], -1], S.filter.zv]);
+    if (S.filter.mj) parts.push(['==', ['coalesce', ['get', 'mj'], 0], S.filter.mj]);
+    if (S.filter.lo) parts.push(['>=', ['coalesce', ['get', 'lo'], -1], S.filter.lo]);
     return parts.length ? ['all', ...parts] : null;
+  }
+
+  // Each filter menu and the key it sets; a menu that is on is marked, and "Clear" shows while any is on.
+  const FILTER_MENUS = [['#f-income', 'iq'], ['#f-car', 'zv'], ['#f-race', 'mj'], ['#f-poverty', 'lo']];
+  function markFilters() {
+    FILTER_MENUS.forEach(([id, key]) => $(id).classList.toggle('active', S.filter[key] > 0));
+    $('#filters-clear').hidden = !filterOn();
   }
 
   function fillColor() {
@@ -190,7 +202,7 @@
     });
     return out;
   }
-  const HASH_ORDER = ['view', 'layer', 'mode', 'time', 'colors', 'income', 'car', 'bg', 'vs'];
+  const HASH_ORDER = ['view', 'layer', 'mode', 'time', 'colors', 'income', 'car', 'race', 'poverty', 'bg', 'vs'];
   function writeHash() {
     if (!S.ix) return;
     const h = readHash();
@@ -201,6 +213,8 @@
     set('colors', S.scale, 'shared');
     set('income', S.filter.iq, 0);
     set('car', S.filter.zv, 0);
+    set('race', S.filter.mj, 0);
+    set('poverty', S.filter.lo, 0);
     set('bg', S.pinnedProps ? S.pinnedProps.g : null, null);
     set('vs', S.cmpProps ? S.cmpProps.g : null, null);
     const rank = (key) => (HASH_ORDER.includes(key) ? HASH_ORDER.indexOf(key) : 99);
@@ -215,13 +229,13 @@
     if (['shared', 'time', 'view'].includes(h.colors)) S.scale = h.colors === 'view' && S.layer !== 'j' ? 'shared' : h.colors;
     if ([1, 2, 3, 4].includes(Number(h.income))) { S.filter.iq = Number(h.income); $('#f-income').value = h.income; }
     if ([10, 20, 30, 40].includes(Number(h.car))) { S.filter.zv = Number(h.car); $('#f-car').value = h.car; }
+    if ([1, 2].includes(Number(h.race))) { S.filter.mj = Number(h.race); $('#f-race').value = h.race; }
+    if ([30, 40, 50, 60].includes(Number(h.poverty))) { S.filter.lo = Number(h.poverty); $('#f-poverty').value = h.poverty; }
     if (/^\d{12}$/.test(h.bg || '')) S.pendingPin = h.bg;
     if (/^\d{12}$/.test(h.vs || '') && h.vs !== h.bg) S.pendingCmp = h.vs;
     document.querySelectorAll('[data-layer]').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.layer === S.layer)));
     $('#mode-select').value = S.mode;
-    $('#f-income').classList.toggle('active', S.filter.iq > 0);
-    $('#f-car').classList.toggle('active', S.filter.zv > 0);
-    $('#filters-clear').hidden = !filterOn();
+    markFilters();
   }
 
   function updateViewBreaks() {
@@ -337,7 +351,7 @@
     const loaded = S.loaded.get(m.slug);
     if (!loaded) return '<div class="fsum">Zoom in to the metro to count the block groups that match the filter.</div>';
     const all = loaded.features.map((f) => f.properties);
-    if (!all.some((p) => has(p.iq) || has(p.zv))) {
+    if (!all.some((p) => has(p.iq) || has(p.zv) || has(p.mj) || has(p.lo))) {
       return '<div class="fsum">The data have no census values for this metro, so the filter matches none of its block groups.</div>';
     }
     const sel = all.filter(matches);
@@ -677,7 +691,7 @@
     //  and Hispanic (of any race)]
     const a = acs[pr.g];
     if (a) {
-      ['inc', 'iq', 'zv', 'pop', 'dens', 'lo', 'sw', 'sb', 'sa', 'sh'].forEach((key, i) => {
+      ['inc', 'iq', 'zv', 'pop', 'dens', 'lo', 'sw', 'sb', 'sa', 'sh', 'mj'].forEach((key, i) => {
         if (a.length > i && a[i] !== null) pr[key] = a[i];
       });
     }
@@ -840,22 +854,18 @@
     if (S.scale === 'view') updateViewBreaks(); else applyColors();
   });
 
-  // The page opens unfiltered: all incomes, all shares (a browser may otherwise restore an earlier choice).
-  $('#f-income').value = '0';
-  $('#f-car').value = '0';
-  ['#f-income', '#f-car'].forEach((id) => $(id).addEventListener('change', () => {
-    S.filter = { iq: Number($('#f-income').value) || 0, zv: Number($('#f-car').value) || 0 };
-    $('#f-income').classList.toggle('active', S.filter.iq > 0);
-    $('#f-car').classList.toggle('active', S.filter.zv > 0);
-    $('#filters-clear').hidden = !filterOn();
+  // The page opens unfiltered (a browser may otherwise restore an earlier choice).
+  FILTER_MENUS.forEach(([id]) => { $(id).value = '0'; });
+  FILTER_MENUS.forEach(([id]) => $(id).addEventListener('change', () => {
+    S.filter = Object.fromEntries(FILTER_MENUS.map(([menu, key]) => [key, Number($(menu).value) || 0]));
+    markFilters();
     if (S.scale === 'view') updateViewBreaks(); else applyColors();
   }));
 
   // The filters sit in the panel, under the view buttons (Sierra, 2026-11-12); "Clear" shows while one is on.
   $('#filters-clear').addEventListener('click', () => {
-    $('#f-income').value = '0';
-    $('#f-car').value = '0';
-    $('#f-income').dispatchEvent(new Event('change'));
+    FILTER_MENUS.forEach(([id]) => { $(id).value = '0'; });
+    $(FILTER_MENUS[0][0]).dispatchEvent(new Event('change'));
   });
 
   // The legend's color scale menu (Sierra, 2026-11-12, on the buttons it replaced: "all times this time this view
