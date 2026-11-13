@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Access by Transit and Car</title>
-  <meta name="description" content="How many jobs, grocery stores, banks, hospitals, libraries and community colleges the residents of each block group can reach by transit and by car, in 84 U.S. metropolitan areas. By Sierra Arnold, Xavier University.">
+  <title>Within Reach: Access to Jobs and Essential Services by Public Transit and Car</title>
+  <meta name="description" content="How many jobs, grocery stores, banks, hospitals, libraries and community colleges the residents of each block group can reach by public transit and by car, in 84 U.S. metropolitan areas. By Sierra Arnold, Xavier University.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
@@ -15,10 +15,9 @@
   <div id="app">
     <aside id="panel" aria-label="Map controls and block group details">
       <header class="brand">
-        <h1>Access by transit and car</h1>
-        <p class="sub">Block groups in <span id="n-metros">84</span> U.S. metros, <span id="years">2023–2025</span></p>
-        <p class="byline">Sierra Arnold, Xavier University ·
-          <a href="https://www.sierraharnold.com" target="_blank" rel="noopener">sierraharnold.com</a></p>
+        <h1>Within Reach</h1>
+        <p class="tagline">Access to jobs and essential services by public transit and car</p>
+        <p class="byline">Sierra Arnold, Xavier University</p>
       </header>
 
       <div class="panel-body">
@@ -39,18 +38,60 @@
           </button>
         </form>
 
-        <label class="field-label" for="metro">Metro</label>
+        <label class="visually-hidden" for="metro">Metro</label>
         <select id="metro"><option value="">Choose a metro</option></select>
         <p id="status" class="status" role="status" aria-live="polite"></p>
 
         <div class="modes">
           <div class="section-title" id="modes-label">Map shows</div>
           <div class="seg" role="group" aria-labelledby="modes-label">
-            <button type="button" data-mode="t" aria-pressed="false">By transit</button>
+            <button type="button" data-mode="t" aria-pressed="false">By public transit</button>
             <button type="button" data-mode="c" aria-pressed="false">By car</button>
-            <button type="button" data-mode="r" aria-pressed="true">Car vs. transit</button>
+            <button type="button" data-mode="r" aria-pressed="true">Car vs. public transit</button>
           </div>
         </div>
+
+        <div class="time">
+          <div class="time-head">
+            <label class="section-title" for="tau">Travel time</label>
+            <output id="tau-out" for="tau">30 minutes</output>
+          </div>
+          <input id="tau" type="range" min="0" max="3" step="1" value="1" autocomplete="off" disabled
+                 aria-valuetext="30 minutes">
+          <div class="time-ticks" aria-hidden="true">
+            <span style="left: 8px">15</span>
+            <span style="left: calc(8px + (100% - 16px) / 3)">30</span>
+            <span style="left: calc(8px + (100% - 16px) * 2 / 3)">45</span>
+            <span style="left: calc(100% - 8px)">60</span>
+          </div>
+        </div>
+
+        <section class="filters" aria-labelledby="filters-title">
+          <div class="filters-head">
+            <div class="section-title" id="filters-title">Filter block groups</div>
+            <button type="button" id="filters-clear" class="link" hidden>Clear</button>
+          </div>
+          <div class="filter-grid">
+            <label class="filter-label">Income in the metro
+              <select id="f-income" autocomplete="off">
+                <option value="0" selected>All incomes</option>
+                <option value="1">Lowest quarter</option>
+                <option value="2">Second quarter</option>
+                <option value="3">Third quarter</option>
+                <option value="4">Highest quarter</option>
+              </select>
+            </label>
+            <label class="filter-label">Share of households without a car
+              <select id="f-car" autocomplete="off">
+                <option value="0" selected>All shares</option>
+                <option value="10">10% or more</option>
+                <option value="20">20% or more</option>
+                <option value="30">30% or more</option>
+                <option value="40">40% or more</option>
+              </select>
+            </label>
+          </div>
+        </section>
 
         <section id="card" aria-live="polite"></section>
       </div>
@@ -60,105 +101,82 @@
         <span class="dot" aria-hidden="true">·</span>
         <button type="button" id="about-open" class="link">About the data</button>
         <span class="dot" aria-hidden="true">·</span>
-        <a class="link" href="mailto:arnolds7@xavier.edu">Contact</a>
+        <button type="button" id="contact-open" class="link">Contact</button>
       </footer>
     </aside>
 
     <div id="stage">
       <div id="map" role="region" aria-label="Map of block groups"></div>
       <div id="legend" aria-label="Legend"></div>
-
-      <button type="button" id="filters-toggle" aria-expanded="false" aria-controls="filters-panel">
-        <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M3 4h14l-5.5 6.5V16l-3 1.5v-7z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
-        <span>Filters</span><span id="filters-count" class="count" hidden></span>
-      </button>
-      <section id="filters-panel" aria-labelledby="filters-title" hidden>
-        <div class="fp-head">
-          <h2 id="filters-title">Filter block groups</h2>
-          <button type="button" id="filters-close" aria-label="Close the filters">&times;</button>
-        </div>
-        <label class="filter-label">Income in the metro
-          <select id="f-income" autocomplete="off">
-            <option value="0" selected>All incomes</option>
-            <option value="1">Lowest quarter</option>
-            <option value="2">Second quarter</option>
-            <option value="3">Third quarter</option>
-            <option value="4">Highest quarter</option>
-          </select>
-        </label>
-        <label class="filter-label">Share of households without a car
-          <select id="f-car" autocomplete="off">
-            <option value="0" selected>All shares</option>
-            <option value="10">10% or more</option>
-            <option value="20">20% or more</option>
-            <option value="30">30% or more</option>
-            <option value="40">40% or more</option>
-          </select>
-        </label>
-        <p class="fp-note">Block groups outside the filter are faded. Income and vehicles: American Community Survey, 2018–22.</p>
-        <div class="fp-foot"><button type="button" id="filters-clear" class="link">Clear filters</button></div>
-      </section>
     </div>
   </div>
 
-  <dialog id="welcome" aria-labelledby="welcome-title">
-    <div class="welcome-head">
-      <div class="welcome-kicker">An interactive map</div>
-      <h2 id="welcome-title">Access by transit and car</h2>
-      <p class="welcome-sub">Block groups in 84 U.S. metropolitan areas, 2023–2025</p>
+  <dialog id="welcome" class="sheet" aria-labelledby="welcome-title">
+    <div class="sheet-head">
+      <h2 id="welcome-title">Within Reach</h2>
+      <p class="sheet-tagline">Access to jobs and essential services by public transit and car</p>
+      <p class="sheet-sub">Sierra Arnold, Xavier University</p>
     </div>
-    <div class="welcome-body">
-      <p>How many jobs can the residents of a neighborhood reach by public transit, and how many grocery stores,
-        banks, hospitals, libraries and community colleges? How many times more could they reach by car? This map
-        shows both for every block group, a neighborhood of about 600 to 3,000 people, in 84 metropolitan areas.</p>
-      <ul class="welcome-how">
-        <li><strong>Choose what to count</strong> at the top of the panel: jobs within 30 minutes, or an essential service within 45 minutes.</li>
-        <li><strong>Hover over a neighborhood</strong> to see its numbers and where it stands in its metro. Click to keep it in the panel.</li>
-        <li><strong>Choose a view:</strong> by transit, by car, or how many times more a car reaches.</li>
-        <li><strong>Filter</strong> neighborhoods by income and by the share of households without a car.</li>
-      </ul>
-      <h3>The research</h3>
+    <div class="sheet-body">
+      <p>This map counts what the residents of a neighborhood (a Census block group) can reach by public transit and by
+        car: jobs, grocery stores, banks, hospitals, libraries and community colleges. Choose a travel time from
+        15 minutes to an hour. It covers 84 U.S. metropolitan areas.</p>
+      <h3>Related papers</h3>
       <ul class="welcome-papers">
-        <li><a href="https://smh172.github.io/evolution-transit-access/evolution_transit_access.pdf" target="_blank" rel="noopener">The Evolution of Transit Access to Jobs in American Cities</a> <span>draft, PDF</span></li>
-        <li><a href="https://smh172.github.io/transit-access-essential-services/transit_access_essential_services.pdf" target="_blank" rel="noopener">The Evolution of Transit Access to Essential Services</a> <span>draft, PDF</span></li>
+        <li><a href="https://github.com/smh172/evolution-transit-access/blob/main/evolution_transit_access.pdf" target="_blank" rel="noopener">The Evolution of Transit Access to Jobs in American Cities</a> <span>(draft)</span></li>
+        <li><a href="https://github.com/smh172/transit-access-essential-services/blob/main/transit_access_essential_services.pdf" target="_blank" rel="noopener">The Evolution of Transit Access to Essential Services</a> <span>(draft)</span></li>
       </ul>
-      <div class="welcome-author">
-        <div class="wa-name">Sierra Arnold</div>
-        <div class="wa-aff">Xavier University</div>
-        <div class="wa-links"><a href="https://www.sierraharnold.com" target="_blank" rel="noopener">sierraharnold.com</a>
-          <span aria-hidden="true">·</span> <a href="mailto:arnolds7@xavier.edu">arnolds7@xavier.edu</a></div>
-      </div>
     </div>
-    <form method="dialog" class="welcome-foot">
-      <button type="button" id="welcome-data" class="link">About the data</button>
+    <form method="dialog" class="sheet-foot">
+      <div class="sheet-links">
+        <button type="button" id="welcome-contact" class="link">Contact</button>
+      </div>
       <button class="btn-primary" value="explore" autofocus>Explore the map</button>
+    </form>
+  </dialog>
+
+  <dialog id="contact" class="sheet" aria-labelledby="contact-title">
+    <div class="sheet-head">
+      <div class="sheet-kicker" id="contact-title">Contact</div>
+      <h2>Sierra Arnold</h2>
+      <p class="sheet-sub">Xavier University</p>
+    </div>
+    <div class="sheet-body">
+      <dl class="contact-list">
+        <dt>Email</dt>
+        <dd><a href="mailto:arnolds7@xavier.edu">arnolds7@xavier.edu</a></dd>
+        <dt>Website</dt>
+        <dd><a href="https://www.sierraharnold.com" target="_blank" rel="noopener">sierraharnold.com</a></dd>
+      </dl>
+    </div>
+    <form method="dialog" class="sheet-foot sheet-foot-end">
+      <button class="btn-primary" value="back" autofocus>Back to the map</button>
     </form>
   </dialog>
 
   <dialog id="about" aria-labelledby="about-title">
     <form method="dialog" class="about-close"><button aria-label="Close">&times;</button></form>
     <h2 id="about-title">About the data</h2>
-    <p>Each block group is colored by the number of jobs its residents can reach within 30 minutes, or of facilities of one essential service within 45 minutes, by transit or by car, or by how many times more a car reaches.</p>
-    <h3>Transit</h3>
-    <p>Door-to-door trips by walking and transit, including the walk, the wait, the ride and any transfer. The time is the median over departures between 7:00 and 9:00 a.m. on one weekday per quarter, routed on the transit schedules archived for that day. The value is the average over the usable quarters of the metro's latest year with usable schedules, which is 2025 for most metros (see Coverage).</p>
-    <h3>Car</h3>
-    <p>Driving times on the street network with no traffic. The car counts are an upper bound, since real trips at rush hour are slower.</p>
-    <h3>Jobs</h3>
-    <p>All jobs in the Census Bureau's LODES, counted at their workplaces, in 2023, the latest year available when the data were built. The transit values for 2024 and 2025 also count 2023's jobs, so both modes count the same jobs. LODES has no data after 2016 for Alaska or after 2021 for Michigan, so the metros in those states count jobs from those years.</p>
-    <h3>Essential services</h3>
-    <p>Each service counts the facilities reachable within 45 minutes, the threshold of the essential-services paper, with that paper's definitions: grocery stores are supermarkets, super stores and large grocery stores authorized to accept SNAP (USDA); banks are full-service bank offices (FDIC Summary of Deposits); hospitals are general acute care hospitals (CMS Provider of Services); libraries are central and branch public libraries (IMLS Public Libraries Survey); community colleges are public two-year college campuses (NCES IPEDS). Transit and car counts use the facilities of the metro's year, except that 2025 uses 2024's libraries and community colleges. The nearest-facility time is the transit trip to the closest one; trips longer than 90 minutes count as none. Because many block groups reach none of a service by transit, its colors use fixed groups, with none as the first.</p>
-    <h3>Filters</h3>
-    <p>The filters use the Census Bureau's American Community Survey, 2018–22 five-year estimates: median household income (table B19013) and the share of households with no vehicle available (table B25044). The income filter splits each metro's block groups into four equal groups by median household income. The data have no census values for Hartford, Jacksonville, Palm Bay or Riverside, and the survey does not report an income for some small block groups; the filters leave those block groups out.</p>
-    <h3>Colors</h3>
-    <p>Each color holds about a tenth of the block groups. Red is below the median block group and teal is above it. With "This view", the tenths are recomputed for the block groups on screen. On the car vs. transit map the colors run the other way, so red marks the largest car advantage.</p>
+    <p>Each block group is colored by how many jobs, or facilities of one essential service, its residents can reach within the chosen travel time, by public transit or by car, or by how many times more a car reaches. Orange is below the median block group and blue is above it; on the car vs. public transit map, orange marks the largest car advantage.</p>
+    <h3>Trips</h3>
+    <p>By public transit: door-to-door trips by walking and public transit, including waits and transfers, timed as the median over departures between 7 and 9 a.m. on one weekday per quarter, on the schedules archived for that day. Each metro shows its latest year of usable schedules. By car: driving with no traffic, so the car counts are an upper bound.</p>
+    <h3>What is counted</h3>
+    <ul class="about-list">
+      <li><strong>Jobs:</strong> all jobs in the Census Bureau's LODES, 2023 (2016 in Alaska and 2021 in Michigan, the latest years published there).</li>
+      <li><strong>Grocery stores:</strong> supermarkets, super stores and large grocery stores that accept SNAP (USDA).</li>
+      <li><strong>Banks:</strong> full-service bank offices (FDIC).</li>
+      <li><strong>Hospitals:</strong> general acute care hospitals (CMS).</li>
+      <li><strong>Libraries:</strong> central and branch public libraries (IMLS).</li>
+      <li><strong>Community colleges:</strong> public two-year college campuses (NCES).</li>
+    </ul>
+    <h3>Neighborhood values</h3>
+    <p>Population, median household income and the share of households without a car come from the American Community Survey, 2018–22. The income filter splits each metro's block groups into four equal groups by income. The data have no census values for Hartford, Jacksonville, Palm Bay or Riverside.</p>
     <h3>Coverage</h3>
     <p id="about-coverage"></p>
     <h3>Source</h3>
-    <p>The access data are from Sierra Arnold, <a href="https://smh172.github.io/evolution-transit-access/evolution_transit_access.pdf" target="_blank" rel="noopener">"The Evolution of Transit Access to Jobs in American Cities"</a> and <a href="https://smh172.github.io/transit-access-essential-services/transit_access_essential_services.pdf" target="_blank" rel="noopener">"The Evolution of Transit Access to Essential Services"</a>, which describe the sources and methods.</p>
-    <h3>Contact</h3>
-    <p>Sierra Arnold, Xavier University. <a href="https://www.sierraharnold.com" target="_blank" rel="noopener">sierraharnold.com</a> · <a href="mailto:arnolds7@xavier.edu">arnolds7@xavier.edu</a></p>
+    <p>Sierra Arnold, <a href="https://github.com/smh172/evolution-transit-access/blob/main/evolution_transit_access.pdf" target="_blank" rel="noopener">"The Evolution of Transit Access to Jobs in American Cities"</a> and <a href="https://github.com/smh172/transit-access-essential-services/blob/main/transit_access_essential_services.pdf" target="_blank" rel="noopener">"The Evolution of Transit Access to Essential Services"</a>, which describe the sources and methods in full.</p>
     <h3>Credits</h3>
-    <p class="small">Transit schedules include data from <a href="https://www.transit.land/terms" target="_blank" rel="noopener">Transitland</a>, the Mobility Database and the Southeastern Pennsylvania Transportation Authority. Street network data &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>, available under the Open Database License. Jobs from the U.S. Census Bureau, LEHD Origin-Destination Employment Statistics (LODES 8). Income and vehicles from the Census Bureau's American Community Survey, 2018–22. Services from USDA (SNAP retailers), FDIC (Summary of Deposits), CMS (Provider of Services), IMLS (Public Libraries Survey) and NCES (IPEDS). Boundaries from the Census Bureau's 2020 cartographic boundary files. Routing was run on resources of the Ohio Supercomputer Center. Basemap by OpenFreeMap and OpenMapTiles. Address search by Nominatim.</p>
+    <p class="small">Public transit schedules include data from <a href="https://www.transit.land/terms" target="_blank" rel="noopener">Transitland</a>, the Mobility Database and the Southeastern Pennsylvania Transportation Authority. Street network data &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>, available under the Open Database License. Jobs from the U.S. Census Bureau, LEHD Origin-Destination Employment Statistics (LODES 8). Population, income and vehicles from the Census Bureau's American Community Survey, 2018–22. Services from USDA (SNAP retailers), FDIC (Summary of Deposits), CMS (Provider of Services), IMLS (Public Libraries Survey) and NCES (IPEDS). Boundaries from the Census Bureau's 2020 cartographic boundary files. Routing was run on resources of the Ohio Supercomputer Center. Basemap by OpenFreeMap and OpenMapTiles. Address search by Nominatim.</p>
   </dialog>
 
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>

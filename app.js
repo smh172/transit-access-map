@@ -1,16 +1,20 @@
-/* Access by transit and car.
-   Layer 1: jobs reachable within 30 minutes, by mode (data/metros.json, data/bg/<metro>.json; build_layer1b.py).
-   Layer 2: block-group characteristics for the filters (data/acs/<metro>.json; build_layer2_acs.py).
-   Layer 3: essential services reachable within 45 minutes, by mode (data/svc/index.json, data/svc/<metro>.json;
-   build_layer3_services.py). */
+/* Within Reach: access to jobs and essential services by transit and car.
+   Layer 1: the metros and the block-group boundaries (data/metros.json, data/bg/<metro>.json; build_layer1b.py).
+   Layer 2: block-group characteristics for the filters and the card (data/acs/<metro>.json; build_layer2_acs.py).
+   Layer 4: jobs and the essential services reachable by each mode within 15, 30, 45 or 60 minutes, chosen with
+   the slider (data/times/index.json, data/times/<metro>.json; build_layer4_times.py). It replaced, for the page,
+   the 30-minute jobs values of layer 1 and the 45-minute service values of layer 3 (data/svc/). */
 (() => {
   'use strict';
 
-  // Red (fewest) to teal (most). Lightness falls in even steps on each side of the median.
-  const PALETTE = ['#972622', '#bc4a41', '#d3786e', '#e1a79f', '#edd4d1',
-                   '#cadfe6', '#91c0d1', '#59a1b9', '#2b8099', '#045f76'];
-  const NO_VALUE = '#c9cccb';
-  const NONE_TRANSIT = '#4f5b61';   // car vs. transit: transit reaches none while a car reaches some
+  // Orange (fewest) to blue (most), one scheme for every layer (Sierra, 2026-11-12). Lightness falls in even
+  // steps on each side of the median, as in the first palette (red to teal); OKLCH hues 50 and 252 (design.md).
+  const PALETTE = ['#844010', '#b0591f', '#c8825b', '#daac94', '#e5d8d0',
+                   '#d3dce6', '#9dbbdd', '#6999cf', '#3877ba', '#115697'];
+  const NO_VALUE = '#d6d8db';
+  // Car vs. transit: transit reaches none while a car reaches some. A mid gray, not black: for hospitals and community
+  // colleges most block groups are in this group, and black buried the ramp.
+  const NONE_TRANSIT = '#8c8f96';
   const STYLE_URL = 'https://tiles.openfreemap.org/styles/positron';
   const US_BOUNDS = [[-124.8, 24.4], [-66.9, 49.4]];
   const LOAD_ZOOM = 6.5;   // block groups load from this zoom
@@ -22,11 +26,11 @@
   const FILTERED_OUT = '#9aa3a6';
   const QUARTERS = { 1: 'lowest-income quarter', 2: 'second quarter by income', 3: 'third quarter by income', 4: 'highest-income quarter' };
 
-  // What the map counts: jobs (layer 1) or one of the essential services (layer 3, from data/svc/index.json).
-  const JOBS = { key: 'j', label: 'Jobs', noun: 'jobs', one: 'job', tau: 30 };
+  // What the map counts: jobs or one of the essential services (data/times/index.json, which also holds jobs).
+  const JOBS = { key: 'j', label: 'Jobs', noun: 'jobs', one: 'job' };
 
   const S = {
-    meta: null, svc: null, layers: [JOBS], layer: 'j',
+    meta: null, ix: null, layers: [JOBS], layer: 'j', tau: 30,
     bySlug: new Map(), mode: 'r', scale: 'all', viewBreaks: null,
     loaded: new Map(), pending: new Map(), features: [], index: new Map(), tick: 0,
     hover: null, hoverProps: null, pinned: null, pinnedProps: null, hoverMetro: null,
@@ -43,7 +47,9 @@
 
   const lay = () => S.layers.find((L) => L.key === S.layer) || JOBS;
   const isJobs = () => S.layer === 'j';
-  const k = (m) => (isJobs() ? m : S.layer + m);   // a measure's property name in the current layer
+  // A measure's property name in the current layer and travel time ("j30t", "g15tp"); the nearest time ("gn")
+  // does not depend on the travel time.
+  const k = (m) => (m === 'n' ? `${S.layer}n` : `${S.layer}${S.tau}${m}`);
 
   function compact(v) {
     if (v >= 1e6) return trimZero((v / 1e6).toFixed(v >= 1e7 ? 0 : 1)) + 'M';
@@ -69,18 +75,20 @@
   // ---------- what each view shows ----------
   function title(mode) {
     const L = lay();
-    if (mode === 't') return `${L.label} reachable within ${L.tau} minutes by transit`;
-    if (mode === 'c') return `${L.label} reachable within ${L.tau} minutes by car, with no traffic`;
-    return `How many times more ${L.noun} a car reaches than transit`;
+    if (mode === 't') return `${L.label} reachable within ${S.tau} minutes by public transit`;
+    if (mode === 'c') return `${L.label} reachable within ${S.tau} minutes by car, with no traffic`;
+    return `How many times more ${L.noun} a car reaches than public transit within ${S.tau} minutes`;
   }
   const ends = (mode) => (mode === 'r' ? ['Smaller car advantage', 'Larger car advantage']
     : [`Fewer ${lay().noun}`, `More ${lay().noun}`]);
 
   // ---------- colors ----------
-  // Jobs use tenths (or the tenths of the block groups on screen); a service uses its fixed classes.
-  const breaks = () => (isJobs() ? (S.scale === 'view' && S.viewBreaks) || S.meta.scales[S.mode] : lay().classes[S.mode]);
+  // Each layer, travel time and view has its classes (build_layer4_times.py); for jobs, "This view" can replace
+  // them with the tenths of the block groups on screen.
+  const breaks = () => (isJobs() && S.scale === 'view' && S.viewBreaks) || lay().classes[S.tau][S.mode];
 
-  // One color per class; with fewer than ten classes the colors are spread across the palette.
+  // One color per class; with fewer than ten classes the colors are spread across the palette. On the car vs.
+  // transit map the colors run the other way, so the first color marks the largest car advantage.
   function classColors() {
     const pal = S.mode === 'r' ? PALETTE.slice().reverse() : PALETTE;
     const n = breaks().length + 1;
@@ -135,7 +143,7 @@
       if (seen.has(f.id)) continue;
       seen.add(f.id);
       if (filterOn() && !matches(f.properties)) continue;   // rescale to the block groups the filter keeps
-      const v = f.properties[S.mode];
+      const v = f.properties[k(S.mode)];
       if (has(v)) vals.push(v);
     }
     if (vals.length < MIN_VIEW) {
@@ -156,27 +164,29 @@
 
   // ---------- legend ----------
   function renderLegend() {
-    if (!S.meta) return;
+    if (!S.meta || !S.ix) return;
     const L = lay();
     const jobs = isJobs();
     const label = S.mode === 'r' ? (v) => `${compact(v)}&times;` : (jobs ? compact : (v) => fmt.format(v));
     const viewOn = jobs && S.scale === 'view';
     const cols = classColors();
     const n = cols.length;
+    const zero = ((L.zero || {})[S.tau] || {})[S.mode];   // none is its own class (build_layer4_times.py)
     let note;
-    if (jobs) {
-      note = viewOn
-        ? (S.viewBreaks ? 'Each color holds about a tenth of the block groups on screen.'
-          : 'Zoom in to a metro to rescale the colors to the screen.')
-        : `Each color holds about a tenth of the block groups in all ${S.meta.counts.metros_mapped} metros.`;
-    } else if (S.mode === 'r') {
-      note = 'Each color holds about a tenth of the block groups that reach at least one by transit.';
-    } else if (breaks()[0] === 1) {
-      note = `The first color is none within ${L.tau} minutes; the others split the rest into groups of about equal size.`;
+    if (viewOn) {
+      note = S.viewBreaks ? 'Each color holds about a tenth of the block groups on screen.'
+        : 'Zoom in to a metro to rescale the colors to the screen.';
+    } else if (zero) {
+      note = breaks().length === 1
+        ? `The first color is none within ${S.tau} minutes, the second one or more.`
+        : `The first color is none within ${S.tau} minutes; the others split the rest into groups of about equal size.`;
+    } else if (S.mode === 'r' && !jobs) {
+      note = 'Each color holds about a tenth of the block groups that reach at least one by public transit.';
     } else {
-      note = 'Each color holds about a tenth of the block groups.';
+      note = jobs ? `Each color holds about a tenth of the block groups in all ${S.meta.counts.metros_mapped} metros.`
+        : 'Each color holds about a tenth of the block groups.';
     }
-    if (S.mode === 'r') note += ` Dark gray: none by transit within ${L.tau} minutes.`;
+    if (S.mode === 'r') note += ` Dark gray: none by public transit within ${S.tau} minutes.`;
     if (filterOn()) note += ' Block groups outside the filter are faded.';
     const [low, high] = ends(S.mode);
     $('#legend').innerHTML = `
@@ -191,7 +201,7 @@
           <button type="button" data-scale="view" aria-pressed="${viewOn}">This view</button>
         </div>` : ''}
         <span class="lg-keys">
-          ${S.mode === 'r' ? `<span class="lg-key"><i style="background:${NONE_TRANSIT}"></i>None by transit</span>` : ''}
+          ${S.mode === 'r' ? `<span class="lg-key"><i style="background:${NONE_TRANSIT}"></i>None by public transit</span>` : ''}
           <span class="lg-key"><i style="background:${NO_VALUE}"></i>No value</span>
         </span>
       </div>
@@ -208,13 +218,16 @@
     return s.length % 2 ? s[i] : (s[i - 1] + s[i]) / 2;
   };
 
-  // The census values of a block group (layer 2): income, its quarter within the metro, car-free households.
+  // The census values of a block group (layer 2): population and density, income, its quarter within the metro,
+  // car-free households.
   function neighborhoodHTML(p, metro) {
-    if (!has(p.inc) && !has(p.zv)) {
-      return '<div class="row-note nb-none">The census reports no income or vehicle values for this block group.</div>';
+    if (!has(p.inc) && !has(p.zv) && !has(p.pop)) {
+      return '<div class="row-note nb-none">The census reports no values for this block group.</div>';
     }
     const q = has(p.iq) ? `In the ${QUARTERS[p.iq]} of the ${esc(metro)} metro's block groups` : '';
     return `<div class="nb">
+        <div class="nb-row"><span>Population</span><strong>${has(p.pop) ? fmt.format(p.pop) : 'Not reported'}</strong></div>
+        <div class="nb-row"><span>People per square mile</span><strong>${has(p.dens) ? fmt.format(p.dens) : 'Not reported'}</strong></div>
         <div class="nb-row"><span>Median household income</span><strong>${has(p.inc) ? `$${fmt.format(p.inc)}` : 'Not reported'}</strong></div>
         ${q ? `<div class="row-note">${q}</div>` : ''}
         <div class="nb-row"><span>Share of households without a car</span><strong>${has(p.zv) ? `${trimZero(p.zv.toFixed(1))}%` : 'Not reported'}</strong></div>
@@ -234,7 +247,7 @@
     const t = median(sel.map((p) => p[k('t')]).filter(has));
     const c = median(sel.map((p) => p[k('c')]).filter(has));
     return `<div class="fsum"><strong>${fmt.format(sel.length)}</strong> of ${fmt.format(all.length)} block groups match the
-      filter. Their median: ${has(t) ? fmt.format(Math.round(t)) : 'no'} ${lay().noun} by transit${has(c) ? `, ${fmt.format(Math.round(c))} by car` : ''}.</div>`;
+      filter. Their median: ${has(t) ? fmt.format(Math.round(t)) : 'no'} ${lay().noun} by public transit${has(c) ? `, ${fmt.format(Math.round(c))} by car` : ''}.</div>`;
   }
 
   function tractLabel(t) {
@@ -265,7 +278,7 @@
     const m = S.bySlug.get(p.m) || { name: '', n_c: 1 };
     const g = String(p.g);
     const metro = shortName(m.name);
-    const inMetro = (x, v) => (!jobs && v === 0 ? `None within ${L.tau} minutes`
+    const inMetro = (x, v) => (!jobs && v === 0 ? `None within ${S.tau} minutes`
       : x === 0 ? `The lowest in the ${esc(metro)} metro`
       : `Higher than ${x}% of block groups in the ${esc(metro)} metro`);
     const state = S.meta.states[g.slice(0, 2)] || '';
@@ -276,17 +289,17 @@
     let rn;
     if (has(r)) {
       rv = `${ratioText(r)}&times;`;
-      rn = r >= 1 ? `A car reaches ${ratioText(r)} times as many ${L.noun} as transit.`
-        : `Transit reaches more ${L.noun} than a car here.`;
+      rn = r >= 1 ? `A car reaches ${ratioText(r)} times as many ${L.noun} as public transit.`
+        : `Public transit reaches more ${L.noun} than a car here.`;
     } else if (t === 0 && has(c) && c > 0) {
-      rv = 'None by transit';
-      rn = `Transit reaches none within ${L.tau} minutes; a car reaches ${fmt.format(c)}.`;
+      rv = 'None by public transit';
+      rn = `Public transit reaches none within ${S.tau} minutes; a car reaches ${fmt.format(c)}.`;
     } else if (t === 0) {
-      rn = `Neither mode reaches ${jobs ? 'any jobs' : `a ${L.one}`} within ${L.tau} minutes.`;
+      rn = `Neither mode reaches ${jobs ? 'any jobs' : `a ${L.one}`} within ${S.tau} minutes.`;
     } else {
-      rn = 'This needs both a transit and a car value.';
+      rn = 'This needs both a public transit and a car value.';
     }
-    const near = jobs ? '' : `<div class="nb-row near"><span>Nearest ${L.one} by transit</span>
+    const near = jobs ? '' : `<div class="nb-row near"><span>Nearest ${L.one} by public transit</span>
         <strong>${!has(p[k('n')]) ? 'None within 90 minutes' : p[k('n')] === 0 ? 'In this block group' : `${p[k('n')]} minutes`}</strong></div>`;
     return `<div class="card card-bg">
       <div class="card-head">
@@ -296,12 +309,12 @@
         ${filterOn() && !matches(p) ? '<div class="out-note">Outside the filter</div>' : ''}
         ${isPinned ? '<button type="button" class="unpin" aria-label="Clear the selected block group">&times;</button>' : ''}
       </div>
-      <div class="section-title">${L.label} within ${L.tau} minutes</div>
-      ${jobsRow('t', 'By transit', t, p[k('tp')], inMetro, 'No transit value for this block group.')}
+      <div class="section-title">${L.label} within ${S.tau} minutes</div>
+      ${jobsRow('t', 'By public transit', t, p[k('tp')], inMetro, 'No public transit value for this block group.')}
       ${jobsRow('c', 'By car, no traffic', c, p[k('cp')], inMetro,
         m.n_c === 0 ? 'This metro has no car travel times.' : 'No car value for this block group.')}
       <div class="row${S.mode === 'r' ? ' selected' : ''}">
-        <div class="row-top"><span class="row-label">Car vs. transit</span>
+        <div class="row-top"><span class="row-label">Car vs. public transit</span>
           ${rv ? `<span class="row-value${has(r) ? '' : ' na'}">${rv}</span>` : '<span class="row-value na">No value</span>'}</div>
         <div class="row-note">${rn}</div>
       </div>
@@ -329,55 +342,54 @@
   }
 
   function summaryHTML() {
-    if (!S.meta) return '';
+    if (!S.meta || !S.ix) return '';
     const m = S.hoverMetro || metroAtCenter();
     if (!m) return '<p class="hint">Choose a metro or search for an address, then hover over a neighborhood.</p>';
     if (!m.mapped) {
       return `<div class="card card-metro">
         <div class="card-head"><span class="level level-metro">Metro overview</span>
           <div class="place">${esc(m.name)}</div></div>
-        <p class="hint">This metro is not on the map. Its latest usable transit schedules are from
+        <p class="hint">This metro is not on the map. Its latest usable public transit schedules are from
         ${m.latest_usable_year}, and the map starts at ${S.meta.year_min}.</p>
       </div>`;
     }
     const L = lay();
     const jobs = isJobs();
-    const sv = jobs ? m : S.svc.metros[m.slug][S.layer];   // the metro's median block group and its ranks
+    const sm = S.ix.metros[m.slug][S.layer];
+    const sv = sm[S.tau];   // the metro's median block group and its ranks, at the chosen travel time
     const q = m.quarters.length;
     const asOf = jobs
       ? (m.jobs_year < S.meta.year_car
         ? `Jobs are from ${m.jobs_year}, the latest year the Census Bureau publishes for this state.`
         : `Jobs are from ${m.jobs_year}.`)
       : `${L.label} as of ${Math.min(m.year, L.car_last_year)}.`;
-    const nWith = (key) => (jobs
-      ? S.meta.metros.filter((x) => x.mapped && has(x.median[key])).length
-      : Object.values(S.svc.metros).filter((v) => has(v[S.layer].median[key])).length);
-    const among = (key) => (x, v) => (!jobs && v === 0 ? `The median block group reaches none within ${L.tau} minutes`
+    const nWith = (key) => Object.values(S.ix.metros).filter((v) => has(v[S.layer][S.tau].median[key])).length;
+    const among = (key) => (x, v) => (!jobs && v === 0 ? `The median block group reaches none within ${S.tau} minutes`
       : x === 0 ? `The lowest of the ${nWith(key)} metros`
       : `Higher than in ${x}% of the ${nWith(key)} metros`);
     const r = sv.median.r;
     let rNote;
-    if (!has(r)) rNote = m.n_c === 0 ? 'This metro has no car travel times.' : `No block group reaches one by transit within ${L.tau} minutes.`;
+    if (!has(r)) rNote = m.n_c === 0 ? 'This metro has no car travel times.' : `No block group reaches one by public transit within ${S.tau} minutes.`;
     else rNote = (sv.pct.r === 0 ? `The smallest car advantage of the ${nWith('r')} metros`
       : `A larger car advantage than in ${sv.pct.r}% of the ${nWith('r')} metros`)
-      + (jobs ? '' : ', among block groups that reach at least one by transit');
-    const extra = jobs ? '' : `<p class="facts">${sv.reach}% of block groups reach at least one ${L.one} by transit within
-      ${L.tau} minutes. ${has(sv.near) ? `Where one is within 90 minutes, the median trip to the nearest takes ${sv.near} minutes.`
-      : `No block group has one within 90 minutes by transit.`}</p>`;
+      + (jobs ? '' : ', among block groups that reach at least one by public transit');
+    const extra = jobs ? '' : `<p class="facts">${sv.reach}% of block groups reach at least one ${L.one} by public transit within
+      ${S.tau} minutes. ${has(sm.near) ? `Where one is within 90 minutes, the median trip to the nearest takes ${sm.near} minutes.`
+      : `No block group has one within 90 minutes by public transit.`}</p>`;
     return `<div class="card card-metro">
       <div class="card-head"><span class="level level-metro">Metro overview</span>
         <div class="place">${esc(m.name)}</div></div>
-      <div class="section-title">${L.label} within ${L.tau} minutes, median block group</div>
-      ${jobsRow('t', 'By transit', sv.median.t, sv.pct.t, among('t'), 'No transit values for this metro.', false)}
+      <div class="section-title">${L.label} within ${S.tau} minutes, median block group</div>
+      ${jobsRow('t', 'By public transit', sv.median.t, sv.pct.t, among('t'), 'No public transit values for this metro.', false)}
       ${jobsRow('c', 'By car, no traffic', sv.median.c, sv.pct.c, among('c'), 'This metro has no car travel times.', false)}
       <div class="row${S.mode === 'r' ? ' selected' : ''}">
-        <div class="row-top"><span class="row-label">Car vs. transit</span>
+        <div class="row-top"><span class="row-label">Car vs. public transit</span>
           ${has(r) ? `<span class="row-value">${ratioText(r)}&times;</span>` : '<span class="row-value na">No value</span>'}</div>
         <div class="row-note">${rNote}</div>
       </div>
       ${extra}
       ${filterOn() ? filterSummary(m) : ''}
-      <p class="facts">${fmt.format(m.n_bg)} block groups. Transit times use ${q === 4 ? 'all four' : q} quarter${q === 1 ? '' : 's'}
+      <p class="facts">${fmt.format(m.n_bg)} block groups. Public transit times use ${q === 4 ? 'all four' : q} quarter${q === 1 ? '' : 's'}
       of ${m.year} schedules. ${asOf}</p>
     </div>
     <p class="hint">Hover over a block group to compare it with the rest of the metro. Click one to keep it here.</p>`;
@@ -430,24 +442,28 @@
   }
 
   // Joins a metro's census values (layer 2) and service values (layer 3) to its block groups.
-  function joinLayers(pr, acs, svc) {
-    const a = acs[pr.g];   // [median household income, income quarter in the metro, % of households without a car]
+  function joinLayers(pr, acs, times) {
+    // [median household income, income quarter in the metro, % of households without a car, population,
+    //  people per square mile]
+    const a = acs[pr.g];
     if (a) {
       if (a[0] !== null) pr.inc = a[0];
       if (a[1] !== null) pr.iq = a[1];
       if (a[2] !== null) pr.zv = a[2];
+      if (a.length > 3 && a[3] !== null) pr.pop = a[3];
+      if (a.length > 4 && a[4] !== null) pr.dens = a[4];
     }
-    const v = svc[pr.g];   // for each service in index order: transit, car, transit rank, car rank, nearest minutes
-    if (v && S.svc) {
-      S.svc.layers.forEach((L, i) => {
-        const [t, c, tp, cp, n] = v.slice(5 * i, 5 * i + 5);
-        if (t !== null) pr[`${L.key}t`] = t;
-        if (c !== null) pr[`${L.key}c`] = c;
-        if (tp !== null) pr[`${L.key}tp`] = tp;
-        if (cp !== null) pr[`${L.key}cp`] = cp;
-        if (n !== null) pr[`${L.key}n`] = n;
-        if (t > 0 && c !== null) pr[`${L.key}r`] = c / t;
-      });
+    // Every layer at every travel time, named by the index's fields ("j30t", "g15tp", ..., "gn"); the ratio is
+    // computed here. The boundary files' own 30-minute job values are dropped, so nothing reads them by mistake.
+    for (const x of ['t', 'c', 'r', 'tp', 'cp']) delete pr[x];
+    const v = times[pr.g];
+    if (v && S.ix) {
+      S.ix.fields.forEach((f, i) => { if (v[i] !== null) pr[f] = v[i]; });
+      S.ix.layers.forEach((L) => S.ix.taus.forEach((tau) => {
+        const t = pr[`${L.key}${tau}t`];
+        const c = pr[`${L.key}${tau}c`];
+        if (t > 0 && has(c)) pr[`${L.key}${tau}r`] = c / t;
+      }));
     }
   }
 
@@ -458,13 +474,13 @@
     }
     if (S.pending.has(m.slug)) return S.pending.get(m.slug);
     setStatus(`Loading ${m.name}…`);
-    // The census and service layers are optional: if their files fail, the map still draws the metro.
+    // The census layer is optional: if its file fails, the map still draws the metro.
     const optional = (url) => getJSON(url).catch((err) => { console.error(err); return {}; });
-    const p = Promise.all([getJSON(`data/bg/${m.slug}.json`), optional(`data/acs/${m.slug}.json`), optional(`data/svc/${m.slug}.json`)])
-      .then(([data, acs, svc]) => {
+    const p = Promise.all([getJSON(`data/bg/${m.slug}.json`), optional(`data/acs/${m.slug}.json`), getJSON(`data/times/${m.slug}.json`)])
+      .then(([data, acs, times]) => {
         for (const f of data.features) {
           f.properties.m = m.slug;
-          joinLayers(f.properties, acs, svc);
+          joinLayers(f.properties, acs, times);
         }
         S.loaded.set(m.slug, { features: data.features, used: ++S.tick });
         evict();
@@ -542,26 +558,44 @@
 
   function fillCoverage() {
     const last = S.meta.years_transit[1];
-    const out = S.meta.metros.filter((m) => !m.mapped).map((m) => `${m.name} (${m.latest_usable_year})`);
-    const earlier = S.meta.metros.filter((m) => m.mapped && m.year !== last).map((m) => `${shortName(m.name)} (${m.year})`);
+    const nLast = S.meta.metros.filter((m) => m.mapped && m.year === last).length;
     const noCar = S.meta.metros.filter((m) => m.mapped && m.n_c === 0).map((m) => shortName(m.name));
     $('#about-coverage').textContent =
-      `The map covers the ${S.meta.counts.metros_mapped} metros, of ${S.meta.counts.metros} in the data, that have usable ` +
-      `transit schedules in ${S.meta.year_min} or later. Each is shown at its latest such year, which is ${last}` +
-      `${earlier.length ? ` except in ${andList(earlier)}` : ''}. Areas outside these metros are not in the data. ` +
-      `Not on the map, with the latest year of usable schedules: ${out.join('; ')}. ` +
+      `${S.meta.counts.metros_mapped} of the ${S.meta.counts.metros} metros in the data have usable public transit schedules in ` +
+      `${S.meta.year_min} or later; each is shown at its latest such year, ${last} for ${nLast} of them. ` +
       `${andList(noCar)} ${noCar.length === 1 ? 'has' : 'have'} no car travel times.`;
   }
 
   // The layer toggle at the top: jobs or one of the essential services.
   function setLayer(key) {
-    if (key !== 'j' && !S.svc) return;
+    if (!S.ix) return;
     S.layer = key;
     document.querySelectorAll('[data-layer]').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.layer === key)));
     if (key !== 'j' && S.scale === 'view') { S.scale = 'all'; S.viewBreaks = null; }
     if (S.scale === 'view') updateViewBreaks(); else applyColors();
   }
   document.querySelectorAll('[data-layer]').forEach((b) => b.addEventListener('click', () => setLayer(b.dataset.layer)));
+
+  // The travel-time slider: 15, 30, 45 or 60 minutes for every layer (Sierra, 2026-11-12), opening at 30.
+  const tauInput = $('#tau');
+  function showTau() {
+    $('#tau-out').textContent = `${S.tau} minutes`;
+    tauInput.setAttribute('aria-valuetext', `${S.tau} minutes`);
+  }
+  function setTauControl() {   // also resets a value the browser may have restored
+    tauInput.max = String(S.ix.taus.length - 1);
+    tauInput.value = String(S.ix.taus.indexOf(S.tau));
+    tauInput.disabled = false;
+    showTau();
+  }
+  tauInput.addEventListener('input', () => {
+    if (!S.ix) return;
+    const tau = S.ix.taus[Number(tauInput.value)];
+    if (!tau || tau === S.tau) return;
+    S.tau = tau;
+    showTau();
+    if (S.scale === 'view') updateViewBreaks(); else applyColors();
+  });
 
   document.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => {
     S.mode = b.dataset.mode;
@@ -576,28 +610,15 @@
     S.filter = { iq: Number($('#f-income').value) || 0, zv: Number($('#f-car').value) || 0 };
     $('#f-income').classList.toggle('active', S.filter.iq > 0);
     $('#f-car').classList.toggle('active', S.filter.zv > 0);
-    const n = (S.filter.iq > 0) + (S.filter.zv > 0);
-    $('#filters-count').hidden = n === 0;
-    $('#filters-count').textContent = String(n);
-    $('#filters-toggle').classList.toggle('active', n > 0);
+    $('#filters-clear').hidden = !filterOn();
     if (S.scale === 'view') updateViewBreaks(); else applyColors();
   }));
 
-  // The filters sit in a pop-out on the right of the map.
-  function setFiltersOpen(open) {
-    $('#filters-panel').hidden = !open;
-    $('#filters-toggle').setAttribute('aria-expanded', String(open));
-    if (open) $('#f-income').focus();
-  }
-  $('#filters-toggle').addEventListener('click', () => setFiltersOpen($('#filters-panel').hidden));
-  $('#filters-close').addEventListener('click', () => { setFiltersOpen(false); $('#filters-toggle').focus(); });
+  // The filters sit in the panel, under the view buttons (Sierra, 2026-11-12); "Clear" shows while one is on.
   $('#filters-clear').addEventListener('click', () => {
     $('#f-income').value = '0';
     $('#f-car').value = '0';
     $('#f-income').dispatchEvent(new Event('change'));
-  });
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !$('#filters-panel').hidden) setFiltersOpen(false);
   });
 
   $('#legend').addEventListener('click', (e) => {
@@ -611,17 +632,14 @@
   $('#card').addEventListener('click', (e) => { if (e.target.closest('.unpin')) unpin(); });
   $('#about-open').addEventListener('click', () => $('#about').showModal());
 
-  // The welcome window opens on a viewer's first visit; "About this map" reopens it.
-  const WELCOME_KEY = 'transit-access-map:welcome-seen';
+  // The welcome window opens on every visit (Sierra, 2026-11-12); "About this map" reopens it.
+  // "Contact" opens the contact page, from the panel's footer or from the welcome window.
   const welcome = $('#welcome');
+  const contact = $('#contact');
   $('#welcome-open').addEventListener('click', () => welcome.showModal());
-  $('#welcome-data').addEventListener('click', () => { welcome.close(); $('#about').showModal(); });
-  welcome.addEventListener('close', () => {
-    try { localStorage.setItem(WELCOME_KEY, '1'); } catch (err) { /* storage unavailable: show it again next time */ }
-  });
-  let welcomeSeen = false;
-  try { welcomeSeen = localStorage.getItem(WELCOME_KEY) === '1'; } catch (err) { welcomeSeen = false; }
-  if (!welcomeSeen) welcome.showModal();
+  $('#contact-open').addEventListener('click', () => contact.showModal());
+  $('#welcome-contact').addEventListener('click', () => { welcome.close(); contact.showModal(); });
+  welcome.showModal();
 
   $('#search').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -639,7 +657,7 @@
       const m = metroAt(lng, lat);
       if (!m) { setStatus('That place is outside the mapped metros.'); map.flyTo({ center: [lng, lat], zoom: 8 }); return; }
       if (!m.mapped) {
-        setStatus(`${m.name} is not on the map. Its latest usable transit schedules are from ${m.latest_usable_year}.`);
+        setStatus(`${m.name} is not on the map. Its latest usable public transit schedules are from ${m.latest_usable_year}.`);
         map.flyTo({ center: [lng, lat], zoom: 10 });
         return;
       }
@@ -673,31 +691,27 @@
   }), 'bottom-right');
   map.on('error', (e) => console.warn(e && e.error ? e.error.message : e));
 
-  // The metro list and the services index load alongside the basemap, so the menu and the About text fill in early.
+  // The metro list and the travel-time index load alongside the basemap, so the menu and the About text fill in early.
   const metaReady = getJSON('data/metros.json').then((meta) => {
     S.meta = meta;
     meta.metros.forEach((m) => S.bySlug.set(m.slug, m));
-    $('#n-metros').textContent = meta.counts.metros_mapped;
-    $('#years').textContent = `${meta.years_transit[0]}–${meta.years_transit[1]}`;
     fillMetroSelect();
     fillCoverage();
     return meta;
   });
-  const svcReady = getJSON('data/svc/index.json')
-    .then((ix) => {
-      S.svc = ix;
-      S.layers = [JOBS, ...ix.layers.map((L) => ({ ...L, noun: L.label.toLowerCase() }))];
-      document.querySelectorAll('[data-layer]').forEach((b) => { b.disabled = false; });
-    })
-    .catch((err) => {   // without the services index, the map shows jobs only
-      console.error(err);
-      document.querySelectorAll('[data-layer]').forEach((b) => { b.disabled = b.dataset.layer !== 'j'; });
-    });
+  // Every layer's values come from this index and the metro files it describes, so the map waits for it.
+  const ixReady = getJSON('data/times/index.json').then((ix) => {
+    S.ix = ix;
+    S.tau = ix.tau_default;
+    S.layers = ix.layers;
+    document.querySelectorAll('[data-layer]').forEach((b) => { b.disabled = false; });
+    setTauControl();
+  });
 
   map.on('load', async () => {
     try {
       await metaReady;
-      await svcReady;
+      await ixReady;
     } catch (err) {
       console.error(err);
       setStatus('The map data could not be loaded.');
@@ -712,7 +726,7 @@
       paint: { 'line-color': '#ffffff', 'line-opacity': 0.6,
         'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0, 11, 0.35, 14, 0.9] } }, firstSymbol);
     map.addLayer({ id: 'bg-focus', type: 'line', source: 'bgs', minzoom: BG_FROM,
-      paint: { 'line-color': '#0f2329',
+      paint: { 'line-color': '#141418',
         'line-width': ['case', ['boolean', ['feature-state', 'hover'], false], 2.5,
           ['boolean', ['feature-state', 'pinned'], false], 2.5, 0] } });
 
@@ -728,7 +742,7 @@
       paint: {
         'circle-radius': ['interpolate', ['linear'], ['zoom'],
           3, ['+', 3, ['*', 6, ['get', 'size']]], 7, ['+', 5, ['*', 10, ['get', 'size']]]],
-        'circle-color': '#045f76',
+        'circle-color': PALETTE[9],
         'circle-stroke-color': '#ffffff',
         'circle-stroke-width': 1.5,
         'circle-opacity': ['interpolate', ['linear'], ['zoom'], 6.5, 0.95, DOTS_UNTIL, 0],
