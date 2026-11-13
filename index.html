@@ -13,7 +13,7 @@
   <meta property="og:image" content="https://smh172.github.io/transit-access-map/preview.jpg">
   <meta property="og:image:width" content="800">
   <meta property="og:image:height" content="420">
-  <meta property="og:image:alt" content="A map of Chicago's block groups colored by how many times more jobs a car reaches than public transit within 30 minutes">
+  <meta property="og:image:alt" content="A map of Chicago's block groups colored by how many jobs their residents can reach within 30 minutes by public transit">
   <meta name="twitter:card" content="summary_large_image">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -75,9 +75,9 @@
             <div class="modes">
               <label class="section-title" for="mode-select">Map shows</label>
               <select id="mode-select" autocomplete="off">
-                <option value="t">By public transit</option>
+                <option value="t" selected>By public transit</option>
                 <option value="c">By car</option>
-                <option value="r" selected>Car vs. public transit</option>
+                <option value="r">Car vs. public transit</option>
               </select>
             </div>
 
@@ -186,11 +186,19 @@
       <li><strong>Community colleges:</strong> public two-year college campuses (NCES).</li>
     </ul>
     <h3>Neighborhood values</h3>
-    <p>Population, median household income and the share of households without a car come from the American Community Survey, 2018–22. The income filter splits each metro's block groups into four equal groups by income. The data have no census values for Hartford, Jacksonville, Palm Bay or Riverside.</p>
+    <p>Population, median household income and the share of households without a car come from the American Community Survey, 2018–22. The income filter splits each metro's block groups into four groups of equal size by median household income. The data have no census values for Hartford, Jacksonville, Palm Bay or Riverside.</p>
+    <h3>Glossary</h3>
+    <dl class="about-glossary">
+      <dt>Block group</dt><dd>A Census Bureau area of about 600 to 3,000 people, the smallest the map shows; the map also calls it a neighborhood.</dd>
+      <dt>Median block group</dt><dd>The middle block group of a metro: half reach more and half reach less. The metro overview uses it to describe the metro.</dd>
+      <dt>Higher than X%</dt><dd>For a block group, the share of its metro's block groups with a lower value; in the metro overview, the share of the mapped metros with a lower median.</dd>
+    </dl>
     <h3>Coverage</h3>
     <p id="about-coverage"></p>
     <h3>Source</h3>
     <p>Sierra Arnold, <a href="https://github.com/smh172/evolution-transit-access/blob/main/evolution_transit_access.pdf" target="_blank" rel="noopener">"The Evolution of Transit Access to Jobs in American Cities"</a> and <a href="https://github.com/smh172/transit-access-essential-services/blob/main/transit_access_essential_services.pdf" target="_blank" rel="noopener">"The Evolution of Transit Access to Essential Services"</a>, which describe the sources and methods in full.</p>
+    <h3>How to cite</h3>
+    <p>Arnold, Sierra. 2026. <i>Within Reach: Access to Jobs and Essential Services by Public Transit and Car.</i> https://smh172.github.io/transit-access-map/</p>
     <h3>Credits</h3>
     <p class="small">Public transit schedules include data from <a href="https://www.transit.land/terms" target="_blank" rel="noopener">Transitland</a>, the Mobility Database and the Southeastern Pennsylvania Transportation Authority. Street network data &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>, available under the Open Database License. Jobs from the U.S. Census Bureau, LEHD Origin-Destination Employment Statistics (LODES 8). Population, income and vehicles from the Census Bureau's American Community Survey, 2018–22. Services from USDA (SNAP retailers), FDIC (Summary of Deposits), CMS (Provider of Services), IMLS (Public Libraries Survey) and NCES (IPEDS). Boundaries from the Census Bureau's 2020 cartographic boundary files. Routing was run on resources of the Ohio Supercomputer Center. Basemap by OpenFreeMap and OpenMapTiles. Address search by Nominatim.</p>
   </dialog>

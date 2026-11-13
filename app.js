@@ -32,10 +32,13 @@
 
   const S = {
     meta: null, ix: null, layers: [JOBS], layer: 'j', tau: 30,
-    bySlug: new Map(), mode: 'r', scale: 'shared', viewBreaks: null,
+    // The page opens on the counts by public transit (Sierra, 2026-11-12: "ok we can make default to transit so
+    // it doesnt jump to the ratio which is confusion"; until then it opened on car vs. public transit).
+    bySlug: new Map(), mode: 't', scale: 'shared', viewBreaks: null,
     loaded: new Map(), pending: new Map(), features: [], index: new Map(), tick: 0,
     hover: null, hoverProps: null, pinned: null, pinnedProps: null, hoverMetro: null,
     hold: null, onMap: false, filter: { iq: 0, zv: 0 },
+    cmpId: null, cmpProps: null, picking: false, pendingPin: null, pendingCmp: null,   // comparing two block groups
   };
 
   const $ = (sel) => document.querySelector(sel);
@@ -187,18 +190,19 @@
     });
     return out;
   }
-  const HASH_ORDER = ['view', 'layer', 'mode', 'time', 'colors', 'income', 'car', 'bg'];
+  const HASH_ORDER = ['view', 'layer', 'mode', 'time', 'colors', 'income', 'car', 'bg', 'vs'];
   function writeHash() {
     if (!S.ix) return;
     const h = readHash();
     const set = (key, val, def) => { if (val === def || val === null || val === undefined) delete h[key]; else h[key] = String(val); };
     set('layer', S.layer, 'j');
-    set('mode', S.mode, 'r');
+    set('mode', S.mode, 't');
     set('time', S.tau, S.ix.tau_default);
     set('colors', S.scale, 'shared');
     set('income', S.filter.iq, 0);
     set('car', S.filter.zv, 0);
     set('bg', S.pinnedProps ? S.pinnedProps.g : null, null);
+    set('vs', S.cmpProps ? S.cmpProps.g : null, null);
     const rank = (key) => (HASH_ORDER.includes(key) ? HASH_ORDER.indexOf(key) : 99);
     const str = Object.keys(h).sort((a, b) => rank(a) - rank(b)).map((key) => `${key}=${h[key]}`).join('&');
     history.replaceState(history.state, '', `${location.pathname}${location.search}${str ? `#${str}` : ''}`);
@@ -212,6 +216,7 @@
     if ([1, 2, 3, 4].includes(Number(h.income))) { S.filter.iq = Number(h.income); $('#f-income').value = h.income; }
     if ([10, 20, 30, 40].includes(Number(h.car))) { S.filter.zv = Number(h.car); $('#f-car').value = h.car; }
     if (/^\d{12}$/.test(h.bg || '')) S.pendingPin = h.bg;
+    if (/^\d{12}$/.test(h.vs || '') && h.vs !== h.bg) S.pendingCmp = h.vs;
     document.querySelectorAll('[data-layer]').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.layer === S.layer)));
     $('#mode-select').value = S.mode;
     $('#f-income').classList.toggle('active', S.filter.iq > 0);
@@ -257,22 +262,21 @@
     const cols = classColors();
     const n = cols.length;
     const zero = ((L.zero || {})[scaleKey()] || {})[S.mode];   // none is its own class (build_layer4_times.py)
-    const over = shared ? 'at the four travel times together' : `in all ${S.meta.counts.metros_mapped} metros`;
+    // Short notes, in plain words (2026-11-12); About the data explains the classes.
     let note;
     if (viewOn) {
-      note = S.viewBreaks ? 'Each color holds about a tenth of the block groups on screen.'
-        : 'Zoom in to a metro to rescale the colors to the screen.';
+      note = S.viewBreaks ? 'Colors fit to the block groups on screen.' : 'Zoom in to a metro to fit the colors to the screen.';
+    } else if (shared) {
+      note = S.mode === 'r' ? 'A color means the same car advantage at every travel time.'
+        : `A color means the same number of ${L.noun} at every travel time.`;
+      if (zero) note = `The first color is none. ${note}`;
     } else if (zero) {
-      note = breaks().length === 1
-        ? `The first color is none within ${S.tau} minutes, the second one or more.`
-        : `The first color is none within ${S.tau} minutes; the others split the rest into groups of about equal size.`;
-    } else if (S.mode === 'r' && !jobs) {
-      note = `Each color holds about a tenth of the block groups that reach at least one by public transit, ${over}.`;
+      note = breaks().length === 1 ? 'The first color is none, the second one or more.'
+        : 'The first color is none; the others split the rest into groups of equal size.';
     } else {
-      note = `Each color holds about a tenth of the block groups ${over}.`;
+      note = `Colors fit to ${S.tau} minutes: each holds about a tenth of the block groups.`;
     }
-    if (shared) note += ' The colors are the same at every travel time.';
-    if (S.mode === 'r') note += ` Dark gray: none by public transit within ${S.tau} minutes.`;
+    if (S.mode === 'r') note += ' Dark gray: none by public transit.';
     if (filterOn()) note += ' Block groups outside the filter are faded.';
     const [low, high] = ends(S.mode);
     $('#legend').innerHTML = `
@@ -395,6 +399,9 @@
         <div class="kicker">${esc(m.name)}</div>
         ${filterOn() && !matches(p) ? '<div class="out-note">Outside the filter</div>' : ''}
         ${isPinned ? '<button type="button" class="unpin" aria-label="Clear the selected block group">&times;</button>' : ''}
+        ${isPinned ? (S.picking
+          ? '<div class="cmp-note">Now click another block group, or search for one, to compare. <button type="button" class="link cmp-cancel">Cancel</button></div>'
+          : '<button type="button" class="link cmp-start">Compare with another block group</button>') : ''}
       </div>
       <div class="section-title">${L.label} within ${S.tau} minutes</div>
       ${jobsRow('t', 'By public transit', t, p[k('tp')], inMetro, 'No public transit value for this block group.')}
@@ -431,7 +438,7 @@
   function summaryHTML() {
     if (!S.meta || !S.ix) return '';
     const m = S.hoverMetro || metroAtCenter();
-    if (!m) return '<p class="hint">Choose a metro or search for an address, then hover over a neighborhood.</p>';
+    if (!m) return '<p class="hint">Choose a metro or search for an address, then mouse over or tap a neighborhood.</p>';
     if (!m.mapped) {
       return `<div class="card card-metro">
         <div class="card-head"><span class="level level-metro">Metro overview</span>
@@ -479,12 +486,123 @@
       <p class="facts">${fmt.format(m.n_bg)} block groups. Public transit times use ${q === 4 ? 'all four' : q} quarter${q === 1 ? '' : 's'}
       of ${m.year} schedules. ${asOf}</p>
     </div>
-    <p class="hint">Hover over a block group to compare it with the rest of the metro. Click one to keep it here.</p>`;
+    <p class="hint">Mouse over or tap a block group to see how it compares with the rest of the metro. Click one to keep it
+    here; you can then compare it with another.</p>`;
+  }
+
+  // ---------- comparing two block groups (Sierra, 2026-11-12: "yes add comparisons") ----------
+  // A is the kept block group; "Compare with another block group" makes the next click (or search) B.
+  function placeName(p) {
+    const g = String(p.g);
+    return `Block group ${g.slice(11)}, tract ${tractLabel(g.slice(5, 11))}, ${esc(S.meta.states[g.slice(0, 2)] || '')}`;
+  }
+  function compareHTML(a, b) {
+    const L = lay();
+    const jobs = isJobs();
+    const metroOf = (p) => esc(shortName((S.bySlug.get(p.m) || { name: '' }).name));
+    const num = (v) => (has(v) ? fmt.format(v) : '–');
+    // each block group's rank in its own metro; none for a zero (the value says it), "lowest" at the bottom
+    const rank = (pct, v) => (!has(pct) || v === 0 ? '' : pct === 0 ? 'lowest in its metro' : `higher than ${pct}%`);
+    const ratio = (p) => {
+      const r = p[k('r')];
+      if (has(r)) return `${ratioText(r)}&times;`;
+      return p[k('t')] === 0 && has(p[k('c')]) && p[k('c')] > 0 ? 'None by public transit' : '–';
+    };
+    const near = (p) => {
+      const n = p[k('n')];
+      if (!has(n)) return 'None within 90 minutes';
+      return n === 0 ? 'In the block group' : `${n} minutes`;
+    };
+    const money = (v) => (has(v) ? `$${fmt.format(v)}` : '–');
+    const share = (v) => (has(v) ? `${trimZero(v.toFixed(1))}%` : '–');
+    const row = (label, va, vb, sa = '', sb = '', sel = false) => `<div class="cmp-row${sel ? ' selected' : ''}">
+        <span class="cmp-label">${label}</span>
+        <span class="cmp-v">${va}${sa ? `<small>${sa}</small>` : ''}</span>
+        <span class="cmp-v">${vb}${sb ? `<small>${sb}</small>` : ''}</span></div>`;
+    const head = (title) => `<div class="cmp-row cmp-head"><span class="section-title">${title}</span>
+        <span class="ab">A</span><span class="ab">B</span></div>`;
+    return `<div class="card card-bg card-cmp">
+      <div class="card-head">
+        <span class="level level-bg">Comparing two block groups</span>
+        <button type="button" class="unpin" aria-label="Clear both block groups">&times;</button>
+        <div class="cmp-who"><span class="ab">A</span><div><div class="place">${placeName(a)}</div>
+          <div class="kicker">${metroOf(a)} metro</div></div></div>
+        <div class="cmp-who"><span class="ab">B</span><div><div class="place">${placeName(b)}</div>
+          <div class="kicker">${metroOf(b)} metro</div></div></div>
+        <button type="button" class="link cmp-stop">Stop comparing</button>
+      </div>
+      ${head(`${L.label} within ${S.tau} minutes`)}
+      ${row('By public transit', num(a[k('t')]), num(b[k('t')]), rank(a[k('tp')], a[k('t')]), rank(b[k('tp')], b[k('t')]), S.mode === 't')}
+      ${row('By car, no traffic', num(a[k('c')]), num(b[k('c')]), rank(a[k('cp')], a[k('c')]), rank(b[k('cp')], b[k('c')]), S.mode === 'c')}
+      ${row('Car vs. public transit', ratio(a), ratio(b), '', '', S.mode === 'r')}
+      ${jobs ? '' : row(`Nearest ${L.one} by public transit`, near(a), near(b))}
+      ${head('Neighborhood, 2018–22')}
+      ${row('Population', num(a.pop), num(b.pop))}
+      ${row('People per square mile', num(a.dens), num(b.dens))}
+      ${row('Median household income', money(a.inc), money(b.inc))}
+      ${row('Share of households without a car', share(a.zv), share(b.zv))}
+      <p class="facts">"Higher than" compares each block group with the rest of its own metro.</p>
+    </div>`;
   }
 
   function renderCard() {
+    if (S.pinnedProps && S.cmpProps) { $('#card').innerHTML = compareHTML(S.pinnedProps, S.cmpProps); return; }
     const p = S.hoverProps || S.pinnedProps;
-    $('#card').innerHTML = p ? blockGroupHTML(p, !S.hoverProps && !!S.pinnedProps) : summaryHTML();
+    // over the kept block group itself, the card stays the kept one (with its buttons)
+    const isPinned = !!S.pinnedProps && (!S.hoverProps || S.hoverProps.g === S.pinnedProps.g);
+    $('#card').innerHTML = p ? blockGroupHTML(p, isPinned) : summaryHTML();
+  }
+
+  // The A and B tags on the map, at the middle of each block group's outline, shown while comparing.
+  function centerOf(geom) {
+    let w = 180; let s = 90; let e = -180; let n = -90;
+    const walk = (c) => {
+      if (typeof c[0] === 'number') { w = Math.min(w, c[0]); e = Math.max(e, c[0]); s = Math.min(s, c[1]); n = Math.max(n, c[1]); }
+      else c.forEach(walk);
+    };
+    walk(geom.coordinates);
+    return [(w + e) / 2, (s + n) / 2];
+  }
+  const tags = { A: null, B: null };
+  function setTag(letter, props) {
+    if (tags[letter]) { tags[letter].remove(); tags[letter] = null; }
+    if (!props) return;
+    const id = S.index.get(props.g);
+    const f = id === undefined ? null : S.features[id];
+    if (!f) return;
+    const el = document.createElement('div');
+    el.className = 'ab-tag';
+    el.textContent = letter;
+    tags[letter] = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(centerOf(f.geometry)).addTo(map);
+  }
+  function setCompare(id, props) {
+    if (S.cmpId !== null && S.cmpId !== undefined) map.setFeatureState({ source: 'bgs', id: S.cmpId }, { cmp: false });
+    S.cmpId = id;
+    S.cmpProps = { ...props };
+    S.picking = false;
+    map.setFeatureState({ source: 'bgs', id }, { cmp: true });
+    setTag('A', S.pinnedProps);
+    setTag('B', S.cmpProps);
+    renderCard();
+    writeHash();
+  }
+  function clearCompare(render = true) {
+    if (S.cmpId !== null && S.cmpId !== undefined) map.setFeatureState({ source: 'bgs', id: S.cmpId }, { cmp: false });
+    S.cmpId = null;
+    S.cmpProps = null;
+    S.picking = false;
+    setTag('A', null);
+    setTag('B', null);
+    if (render) { renderCard(); writeHash(); }
+  }
+  // A click (or a search) keeps a block group; while comparing, or after "Compare with another block group", it
+  // becomes B instead.
+  function choose(id, props) {
+    if (S.pinnedProps && (S.picking || S.cmpProps)) {
+      if (props.g !== S.pinnedProps.g) setCompare(id, props);
+    } else {
+      pin(id, props);
+    }
   }
 
   function pin(id, props) {
@@ -497,6 +615,7 @@
   }
 
   function unpin() {
+    clearCompare(false);
     if (S.pinned !== null) map.setFeatureState({ source: 'bgs', id: S.pinned }, { pinned: false });
     S.pinned = null;
     S.pinnedProps = null;
@@ -526,6 +645,14 @@
       S.pendingPin = null;
       pin(id, S.features[id].properties);
     }
+    S.cmpId = S.cmpProps && S.index.has(S.cmpProps.g) ? S.index.get(S.cmpProps.g) : null;
+    if (S.cmpId !== null) map.setFeatureState({ source: 'bgs', id: S.cmpId }, { cmp: true });
+    if (S.pendingCmp && S.pinnedProps && S.index.has(S.pendingCmp)) {   // the second block group of a shared link
+      const id = S.index.get(S.pendingCmp);
+      S.pendingCmp = null;
+      setCompare(id, S.features[id].properties);
+    }
+    if (S.cmpProps) { setTag('A', S.pinnedProps); setTag('B', S.cmpProps); }
     if (S.scale === 'view') map.once('idle', updateViewBreaks);
   }
 
@@ -726,7 +853,12 @@
     else { S.viewBreaks = null; applyColors(); }
   });
 
-  $('#card').addEventListener('click', (e) => { if (e.target.closest('.unpin')) unpin(); });
+  $('#card').addEventListener('click', (e) => {
+    if (e.target.closest('.unpin')) unpin();
+    else if (e.target.closest('.cmp-start')) { S.picking = true; renderCard(); }
+    else if (e.target.closest('.cmp-cancel')) { S.picking = false; renderCard(); }
+    else if (e.target.closest('.cmp-stop')) clearCompare();
+  });
 
   // The map options float over the map (Sierra, 2026-11-12: "like the opp atlas has the toggles floating") and
   // can be hidden; on phones they move into the panel, above the card.
@@ -777,7 +909,7 @@
       map.flyTo({ center: [lng, lat], zoom: 13.5 });
       map.once('idle', () => {
         const fs = map.queryRenderedFeatures(map.project([lng, lat]), { layers: ['bg-fill'] });
-        if (fs.length) pin(fs[0].id, fs[0].properties);
+        if (fs.length) choose(fs[0].id, fs[0].properties);
         else setStatus('No block group at that spot.');
       });
     } catch (err) {
@@ -842,7 +974,8 @@
     map.addLayer({ id: 'bg-focus', type: 'line', source: 'bgs', minzoom: BG_FROM,
       paint: { 'line-color': '#141418',
         'line-width': ['case', ['boolean', ['feature-state', 'hover'], false], 2.5,
-          ['boolean', ['feature-state', 'pinned'], false], 2.5, 0] } });
+          ['boolean', ['feature-state', 'pinned'], false], 2.5,
+          ['boolean', ['feature-state', 'cmp'], false], 2.5, 0] } });
 
     // One circle per mapped metro, colored by its median block group; metros not on the map get none.
     map.addSource('metros', { type: 'geojson', data: dotData() });
@@ -851,8 +984,8 @@
         'circle-radius': ['interpolate', ['linear'], ['zoom'],
           3, ['+', 3, ['*', 6, ['get', 'size']]], 7, ['+', 5, ['*', 10, ['get', 'size']]]],
         'circle-color': dotColor(),
-        'circle-stroke-color': '#ffffff',
-        'circle-stroke-width': 1.5,
+        'circle-stroke-color': '#2f3440',   // dark, so that the pale middle colors stand out on the light map
+        'circle-stroke-width': 1.25,
         'circle-opacity': ['interpolate', ['linear'], ['zoom'], 6.5, 0.95, DOTS_UNTIL, 0],
         'circle-stroke-opacity': ['interpolate', ['linear'], ['zoom'], 6.5, 1, DOTS_UNTIL, 0],
       } });
@@ -928,11 +1061,16 @@
       const f = e.features && e.features[0];
       if (!f || overDot(e.point)) return;
       S.hold = null;
-      pin(f.id, f.properties);
+      choose(f.id, f.properties);
       // Zoom in a little when the map is zoomed out (Sierra, 2026-11-12), keeping the clicked spot under the pointer.
       if (map.getZoom() < CLICK_ZOOM - 0.5) map.easeTo({ zoom: CLICK_ZOOM, around: e.lngLat, duration: 600 });
     });
 
+    // The A and B tags hide with the block groups when the map is zoomed out.
+    map.on('zoom', () => {
+      const show = map.getZoom() >= BG_FROM;
+      Object.values(tags).forEach((t) => { if (t) t.getElement().style.display = show ? '' : 'none'; });
+    });
     map.on('moveend', () => {
       ensureMetros();
       syncMetroSelect();
