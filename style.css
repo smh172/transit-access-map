@@ -222,6 +222,7 @@ dialog#contact { width: min(440px, calc(100vw - 32px)); }
 .sheet-body { padding: 16px 26px 4px; }
 .sheet-body p { margin: 0 0 10px; }
 .sheet-body h3 { margin: 14px 0 7px; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
+#welcome .sheet-body h3 { margin-top: 24px; }
 .welcome-papers { list-style: none; margin: 0 0 12px; padding: 0; }
 .welcome-papers li { padding: 8px 11px; margin-bottom: 6px; border: 1px solid var(--line); border-radius: 8px; }
 .welcome-papers a { color: var(--accent); font-weight: 600; text-decoration: none; }
