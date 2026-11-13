@@ -16,6 +16,9 @@ described in two drafts, which describe the sources and methods:
 - "The Evolution of Transit Access to Essential Services"
   (https://github.com/smh172/transit-access-essential-services/blob/main/transit_access_essential_services.pdf)
 
+The panel has no car travel times for Jacksonville, Palm Bay and Riverside; theirs were routed for this map by the
+same method, on 2026 OpenStreetMap street maps.
+
 This repository holds the published page only: `index.html`, `app.js`, `style.css`, `preview.jpg` (the image
 shown when the link is shared), and the data files the
 page draws (`data/`: `metros.json`, the block-group boundaries in `bg/`, their census values in `acs/`, and

@@ -267,9 +267,9 @@
     if (viewOn) {
       note = S.viewBreaks ? 'Colors fit to the block groups on screen.' : 'Zoom in to a metro to fit the colors to the screen.';
     } else if (shared) {
-      note = S.mode === 'r' ? 'A color means the same car advantage at every travel time.'
-        : `A color means the same number of ${L.noun} at every travel time.`;
-      if (zero) note = `The first color is none. ${note}`;
+      // No sentence about the shared scale (Sierra, 2026-11-13, of "A color means the same number of jobs at every
+      // travel time.": "this is confusing"); the menu beside the note says "Same for every travel time".
+      note = zero ? 'The first color is none.' : '';
     } else if (zero) {
       note = breaks().length === 1 ? 'The first color is none, the second one or more.'
         : 'The first color is none; the others split the rest into groups of equal size.';
@@ -296,7 +296,7 @@
           <span class="lg-key"><i style="background:${NO_VALUE}"></i>No value</span>
         </span>
       </div>
-      <div class="lg-note">${note}</div>`;
+      ${note.trim() ? `<div class="lg-note">${note.trim()}</div>` : ''}`;
   }
 
   // ---------- the cards ----------
@@ -438,7 +438,7 @@
   function summaryHTML() {
     if (!S.meta || !S.ix) return '';
     const m = S.hoverMetro || metroAtCenter();
-    if (!m) return '<p class="hint">Choose a metro or search for an address, then mouse over or tap a neighborhood.</p>';
+    if (!m) return '<p class="hint">Choose a metro or search for an address, then select a neighborhood.</p>';
     if (!m.mapped) {
       return `<div class="card card-metro">
         <div class="card-head"><span class="level level-metro">Metro overview</span>
@@ -486,8 +486,7 @@
       <p class="facts">${fmt.format(m.n_bg)} block groups. Public transit times use ${q === 4 ? 'all four' : q} quarter${q === 1 ? '' : 's'}
       of ${m.year} schedules. ${asOf}</p>
     </div>
-    <p class="hint">Mouse over or tap a block group to see how it compares with the rest of the metro. Click one to keep it
-    here; you can then compare it with another.</p>`;
+    <p class="hint">Select a block group to see how it compares with the rest of the metro.</p>`;
   }
 
   // ---------- comparing two block groups (Sierra, 2026-11-12: "yes add comparisons") ----------
@@ -758,12 +757,19 @@
   }
 
   // ---------- panel controls ----------
+  // The menu lists only the metros on the map (Sierra, 2026-11-13). A metro off the map is still named in the
+  // panel when the map is over it, and by the search. The menu names each metro by its largest city and first
+  // state, "Seattle, WA" for Seattle-Tacoma-Bellevue, WA (Sierra, 2026-11-13); the metro card keeps the full name.
+  const menuName = (name) => `${shortName(name)}, ${name.slice(name.lastIndexOf(', ') + 2).split('-')[0]}`;
   function fillMetroSelect() {
     const sel = $('#metro');
-    for (const m of S.meta.metros) {
+    const shown = S.meta.metros.filter((x) => x.mapped)
+      .map((m) => ({ m, label: menuName(m.name) }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+    for (const { m, label } of shown) {
       const o = document.createElement('option');
       o.value = m.slug;
-      o.textContent = m.mapped ? m.name : `${m.name} (not mapped)`;
+      o.textContent = label;
       sel.appendChild(o);
     }
     sel.addEventListener('change', () => {
@@ -774,7 +780,7 @@
 
   function syncMetroSelect() {
     const m = metroAtCenter();
-    $('#metro').value = m ? m.slug : '';
+    $('#metro').value = m && m.mapped ? m.slug : '';
   }
 
   function fillCoverage() {
@@ -783,8 +789,8 @@
     const noCar = S.meta.metros.filter((m) => m.mapped && m.n_c === 0).map((m) => shortName(m.name));
     $('#about-coverage').textContent =
       `${S.meta.counts.metros_mapped} of the ${S.meta.counts.metros} metros in the data have usable public transit schedules in ` +
-      `${S.meta.year_min} or later; each is shown at its latest such year, ${last} for ${nLast} of them. ` +
-      `${andList(noCar)} ${noCar.length === 1 ? 'has' : 'have'} no car travel times.`;
+      `${S.meta.year_min} or later; each is shown at its latest such year, ${last} for ${nLast} of them.` +
+      (noCar.length ? ` ${andList(noCar)} ${noCar.length === 1 ? 'has' : 'have'} no car travel times.` : '');
   }
 
   // The layer toggle at the top: jobs or one of the essential services.
@@ -882,6 +888,22 @@
   $('#welcome-open').addEventListener('click', () => welcome.showModal());
   $('#contact-open').addEventListener('click', () => contact.showModal());
   $('#welcome-contact').addEventListener('click', () => { welcome.close(); contact.showModal(); });
+
+  // A click on the dimmed area behind a window closes it, as on most sites (Sierra, 2026-11-13, for the welcome
+  // window; the contact and About windows do the same). The press has to start there too, so a text selection
+  // that ends outside a window leaves it open.
+  document.querySelectorAll('dialog').forEach((d) => {
+    const outside = (e) => {
+      const r = d.getBoundingClientRect();
+      return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+    };
+    let pressed = false;
+    d.addEventListener('pointerdown', (e) => { pressed = e.target === d && outside(e); });
+    d.addEventListener('click', (e) => {
+      if (pressed && e.target === d && outside(e)) d.close();
+      pressed = false;
+    });
+  });
   welcome.showModal();
 
   $('#search').addEventListener('submit', async (e) => {
