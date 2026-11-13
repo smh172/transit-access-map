@@ -103,8 +103,8 @@
   const classColors = () => colorsFor(breaks().length + 1);
 
   // ---------- filters (layer 2): income quarter within the metro, share of households without a car, and (since
-  // 2026-11-13, Sierra: "Yes, add them") majority White or majority minority, and the share of people below twice
-  // the poverty line ----------
+  // 2026-11-13, Sierra: "Yes, add them") majority White or majority non-White (the label since the same day, Sierra:
+  // "maybe instead of minority it should say non-white"), and the share of people below twice the poverty line ----------
   const filterOn = () => S.filter.iq > 0 || S.filter.zv > 0 || S.filter.mj > 0 || S.filter.lo > 0;
   const matches = (p) => (!S.filter.iq || p.iq === S.filter.iq) && (!S.filter.zv || (has(p.zv) && p.zv >= S.filter.zv))
     && (!S.filter.mj || p.mj === S.filter.mj) && (!S.filter.lo || (has(p.lo) && p.lo >= S.filter.lo));
