@@ -171,8 +171,20 @@
         geometry: { type: 'Point', coordinates: m.center } };
     }));
   }
+  // The circles' own steps: the mapped metros' medians split into groups of about equal size (Sierra, 2026-11-17: "same
+  // issue with the access, where at the national view theyre all red": on the block groups' steps most metros' medians
+  // fell in the first colors). The legend shows these steps while the circles show (renderLegend).
+  function metroBreaks() {
+    const vals = S.meta.metros.filter((m) => m.mapped).map((m) => metroValue(m).v).filter(has).sort((a, b) => a - b);
+    const out = [];
+    for (let i = 1; i < PALETTE.length && vals.length; i++) {
+      const b = nice(vals[Math.floor((i * vals.length) / PALETTE.length)]);
+      if (b > vals[0] && (!out.length || b > out[out.length - 1])) out.push(b);
+    }
+    return out;
+  }
   function dotColor() {
-    const br = lay().classes[S.scale === 'time' ? S.tau : 'all'][S.mode];
+    const br = metroBreaks();
     const cols = colorsFor(br.length + 1);
     const step = ['step', ['to-number', ['get', 'v']], cols[0]];
     br.forEach((b, i) => step.push(b, cols[i + 1]));
@@ -271,6 +283,19 @@
     const L = lay();
     const jobs = isJobs();
     const label = S.mode === 'r' ? (v) => `${compact(v)}&times;` : (jobs ? compact : (v) => fmt.format(v));
+    // while the national circles show, their own steps (metroBreaks)
+    if (map.getZoom() < LOAD_ZOOM) {
+      const br = metroBreaks();
+      const cols = colorsFor(br.length + 1);
+      const [lo, hi] = ends(S.mode);
+      $('#legend').innerHTML = `
+        <div class="lg-title">${title(S.mode)}, median block group</div>
+        <div class="lg-bar">${cols.map((c) => `<span style="background:${c}"></span>`).join('')}</div>
+        <div class="lg-ticks">${br.map((b, i) => `<span style="left:${((i + 1) / cols.length) * 100}%">${label(b)}</span>`).join('')}</div>
+        <div class="lg-ends"><span>${lo}</span><span>${hi}</span></div>
+        <div class="lg-note">Each circle is a metro, colored by its median block group; each color holds about a tenth of the metros.</div>`;
+      return;
+    }
     const viewOn = jobs && S.scale === 'view';
     const shared = !viewOn && S.scale !== 'time';
     const cols = classColors();
@@ -1135,9 +1160,12 @@
     });
 
     // The A and B tags hide with the block groups when the map is zoomed out.
+    let national = map.getZoom() < LOAD_ZOOM;
     map.on('zoom', () => {
       const show = map.getZoom() >= BG_FROM;
       Object.values(tags).forEach((t) => { if (t) t.getElement().style.display = show ? '' : 'none'; });
+      // the legend follows what shows: the circles' steps below LOAD_ZOOM, the block groups' above
+      if ((map.getZoom() < LOAD_ZOOM) !== national) { national = !national; renderLegend(); }
     });
     map.on('moveend', () => {
       ensureMetros();

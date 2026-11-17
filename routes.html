@@ -234,6 +234,13 @@
   // a metro chosen by its circle or the menu: the map flies to it as the map page's does (its box, padding 40, zoom 11
   // at most), then the metro's page opens at the view it reached (Sierra, 2026-11-17: "i like the slow zoom in on the
   // acces, the routes doesnt do that")
+  let leaving = false;   // a flight or a zoom past the metro's scale is taking the page to another view
+  // the metro's files start downloading as the flight starts, so the next page finds them in the browser's cache
+  // (Sierra, 2026-11-17: "and everything still loads pretty slow on the green tab")
+  function prefetchMetro(s) {
+    for (const n of ['meta', 'routes', 'trips', 'stops', 'calls', 'bgstops', 'jobs']) fetch(`data/routes/${s}/${n}.json`).catch(() => {});
+    fetch(`data/bg/${s}.json`).catch(() => {});
+  }
   function flyToMetro(m, s) {
     const rec = metros.find((x) => x.slug === s);
     const go = () => {
@@ -242,6 +249,8 @@
     };
     const cam = rec && m.cameraForBounds([[rec.bbox[0], rec.bbox[1]], [rec.bbox[2], rec.bbox[3]]], { padding: 40, maxZoom: METRO_MAX_ZOOM });
     if (!cam) { location.href = `routes.html?metro=${s}`; return; }
+    leaving = true;
+    prefetchMetro(s);
     m.setMinZoom(2);
     m.once('moveend', go);
     m.flyTo({ center: cam.center, zoom: cam.zoom });
@@ -270,7 +279,7 @@
     menu.addEventListener('change', () => { if (menu.value) flyToMetro(map, menu.value); });
     document.getElementById('clickhint-text').innerHTML =
       '<strong>Choose a metro</strong> or search for an address to see its public transit routes and buses.';
-    for (const id of ['legend', 'key']) document.getElementById(id).style.display = 'none';
+    document.getElementById('key').style.display = 'none';
     // the map options stay where they are on every view, as on the map page, idle until a metro is chosen (Sierra,
     // 2026-11-17: "its kind of weird that the right panel is already in palce for the access tab but not for the green tab")
     for (const el of document.querySelectorAll('#controls-body button, #controls-body input')) el.disabled = true;
@@ -292,15 +301,45 @@
     const map = new maplibregl.Map({
       container: 'map', style: 'https://tiles.openfreemap.org/styles/positron', bounds: US_BOUNDS,
       fitBoundsOptions: { padding: 30 }, minZoom: 2.5, maxZoom: 16, dragRotate: false, pitchWithRotate: false,
-      touchPitch: false, attributionControl: false,
+      touchPitch: false, attributionControl: false, hash: 'view',
     });
     map.touchZoomRotate.disableRotation();
     map.addControl(new maplibregl.AttributionControl({ compact: true,
       customAttribution: 'Routes data: S. Arnold. Schedules include <a href="https://www.transit.land/terms" target="_blank" rel="noopener">Transitland</a> data.' }), 'bottom-right');
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
     const go = (s, view = '') => { location.href = `routes.html?metro=${s}${view}`; };
-    map.on('load', () => {
+    map.on('load', async () => {
       document.getElementById('loading').remove();
+      // the circles' color: jobs per square mile in the metro's central business district (index.json, dens_cbd), on steps
+      // that split the 84 metros into eighths, in the metro view's greens (Sierra, 2026-11-17: "the greens at the national map
+      // arent in any kind of scale, while the blues are"; "myabe say in the central business district")
+      const greens = (await getJSON(`data/routes/${index[0].slug}/meta.json`)).greens;
+      const twoSig = (x) => { const m = Math.pow(10, Math.floor(Math.log10(x)) - 1); return Math.round(x / m) * m; };
+      const dv = index.map((x) => x.dens_cbd).filter((v) => v > 0).sort((a, b) => a - b);
+      const dbr = [];
+      for (let i = 1; i < greens.length; i++) {
+        const b = twoSig(dv[Math.floor((i * dv.length) / greens.length)]);
+        if (!dbr.length || b > dbr[dbr.length - 1]) dbr.push(b);
+      }
+      const dstep = ['step', ['get', 'd'], greens[0]];
+      dbr.forEach((b, i) => dstep.push(b, greens[i + 1]));
+      const dens = new Map(index.map((x) => [x.slug, x.dens_cbd || 0]));
+      const kfmt = (v) => (v >= 1000 ? `${fmt.format(Math.round(v / 100) / 10)}k` : fmt.format(v));
+      document.getElementById('legend').innerHTML = `
+        <div class="lg-title">Jobs per square mile in each metro's central business district</div>
+        <div class="lg-bar">${greens.map((c) => `<span style="background:${c}"></span>`).join('')}</div>
+        <div class="lg-ticks">${dbr.map((b, i) => `<span style="left:${((i + 1) / greens.length) * 100}%">${kfmt(b)}</span>`).join('')}</div>
+        <div class="lg-ends"><span>Fewer jobs</span><span>More jobs</span></div>
+        <div class="lg-note">The central business district here is the area within a mile of the spot with the most jobs within a mile. Each color holds about an eighth of the ${index.length} metros.</div>`;
+      // zooming in past the metro scale opens the metro under the middle of the map, as the map page loads it
+      map.on('zoomend', () => {
+        if (leaving || map.getZoom() < 8) return;
+        const c = map.getCenter(), area = (x) => (x.bbox[2] - x.bbox[0]) * (x.bbox[3] - x.bbox[1]);
+        const hit = metros.filter((x) => have.has(x.slug) && inBox(x.bbox, c.lng, c.lat)).sort((a, b) => area(a) - area(b))[0];
+        if (!hit) return;
+        leaving = true;
+        location.href = `routes.html?metro=${hit.slug}#view=${map.getZoom().toFixed(2)}/${c.lat.toFixed(4)}/${c.lng.toFixed(4)}`;
+      });
       // green, the tab's color, and sized by the buses and trains running at 8 a.m., by the map page's formula (the
       // square root of the share of the largest) (Sierra, 2026-11-17: "since that tab is green, maybe the circles should
       // be green? and does it make sense for them to all be the same size?")
@@ -310,17 +349,17 @@
         .filter((m) => have.has(m.slug) && m.center)
         .sort((a, b) => veh.get(b.slug) - veh.get(a.slug))   // the small ones drawn last, on top
         .map((m) => ({ type: 'Feature', properties: { slug: m.slug, name: short.get(m.slug), n: veh.get(m.slug),
-          size: Math.sqrt(veh.get(m.slug) / maxV) }, geometry: { type: 'Point', coordinates: m.center } })) } });
+          d: dens.get(m.slug), size: Math.sqrt(veh.get(m.slug) / maxV) }, geometry: { type: 'Point', coordinates: m.center } })) } });
       map.addLayer({ id: 'metro-dots', type: 'circle', source: 'metros', paint: {
         'circle-radius': ['interpolate', ['linear'], ['zoom'],
           3, ['+', 3, ['*', 6, ['get', 'size']]], 7, ['+', 5, ['*', 10, ['get', 'size']]]],
-        'circle-color': '#358847', 'circle-opacity': 0.9,   // the scale's sixth green
+        'circle-color': dstep, 'circle-opacity': 0.95,
         'circle-stroke-color': '#2f3440', 'circle-stroke-width': 1.25 } });
       const tip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, className: 'bg-tip', offset: 12 });
       map.on('mousemove', 'metro-dots', (e) => {
         const p = e.features[0].properties;
         map.getCanvas().style.cursor = 'pointer';
-        tip.setLngLat(e.lngLat).setHTML(`${p.name}<span>${fmt.format(p.n)} ${p.n === 1 ? 'bus or train' : 'buses and trains'} running at 8 a.m.</span><span class="act">Select to see its routes and buses</span>`).addTo(map);
+        tip.setLngLat(e.lngLat).setHTML(`${p.name}<span>${fmt.format(p.n)} ${p.n === 1 ? 'bus or train' : 'buses and trains'} running at 8 a.m.; ${fmt.format(p.d)} jobs per square mile in its central business district</span><span class="act">Select to see its routes and buses</span>`).addTo(map);
       });
       map.on('mouseleave', 'metro-dots', () => { map.getCanvas().style.cursor = ''; tip.remove(); });
       map.on('click', 'metro-dots', (e) => flyToMetro(map, e.features[0].properties.slug));
@@ -441,6 +480,7 @@
   document.getElementById('to-national').hidden = false;
   // out to the country with the map's own motion, as on the map page, then the national view opens there
   document.getElementById('to-national').addEventListener('click', () => {
+    leaving = true;
     map.setMinZoom(2);
     map.once('moveend', () => { location.href = 'routes.html'; });
     map.fitBounds([[-124.8, 24.4], [-66.9, 49.4]], { padding: 30 });
@@ -451,8 +491,16 @@
     : { center: mrec.center || map.getCenter(), zoom: LOAD_ZOOM + 1 };
   if (!viewKept) map.jumpTo(HOME);
   // out to the whole metro and a little more, never closer than a view brought from the map page
-  const zLow = Math.min(HOME.zoom - 0.6, map.getZoom());
-  map.setMinZoom(Math.max(2, zLow));
+  // out as far as the map page allows; past the metro's scale the national view takes over (Sierra, 2026-11-17: "i
+  // think we can scroll all the way to the national view preferable"; this retires the stop 0.6 below the metro's view)
+  const zLow = Math.min(HOME.zoom - 0.6, map.getZoom());   // still sizes the smallest marks
+  map.setMinZoom(2.5);
+  map.on('zoomend', () => {
+    if (leaving || map.getZoom() >= LOAD_ZOOM) return;
+    leaving = true;
+    const c = map.getCenter();
+    location.href = `routes.html#view=${map.getZoom().toFixed(2)}/${c.lat.toFixed(4)}/${c.lng.toFixed(4)}`;
+  });
   const firstSymbol = (map.getStyle().layers.find((l) => l.type === 'symbol') || {}).id;
 
   map.addSource('bg', { type: 'geojson', data: bgfc });
