@@ -819,7 +819,7 @@
     const nLast = S.meta.metros.filter((m) => m.mapped && m.year === last).length;
     const noCar = S.meta.metros.filter((m) => m.mapped && m.n_c === 0).map((m) => shortName(m.name));
     $('#about-coverage').textContent =
-      `${S.meta.counts.metros_mapped} of the ${S.meta.counts.metros} metros in the data have usable public transit schedules in ` +
+      `Of the ${S.meta.counts.metros} metros in the data, ${S.meta.counts.metros_mapped} have usable public transit schedules in ` +
       `${S.meta.year_min} or later; each is shown at its latest such year, ${last} for ${nLast} of them.` +
       (noCar.length ? ` ${andList(noCar)} ${noCar.length === 1 ? 'has' : 'have'} no car travel times.` : '');
   }

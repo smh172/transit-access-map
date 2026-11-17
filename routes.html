@@ -269,15 +269,23 @@
     }
     menu.addEventListener('change', () => { if (menu.value) flyToMetro(map, menu.value); });
     document.getElementById('clickhint-text').innerHTML =
-      '<strong>Choose a metro</strong>, or search for an address, to see its public transit routes and buses.';
-    for (const id of ['controls', 'legend', 'key', 'sources']) document.getElementById(id).style.display = 'none';
+      '<strong>Choose a metro</strong> or search for an address to see its public transit routes and buses.';
+    for (const id of ['legend', 'key']) document.getElementById(id).style.display = 'none';
+    // the map options stay where they are on every view, as on the map page, idle until a metro is chosen (Sierra,
+    // 2026-11-17: "its kind of weird that the right panel is already in palce for the access tab but not for the green tab")
+    for (const el of document.querySelectorAll('#controls-body button, #controls-body input')) el.disabled = true;
+    document.getElementById('inservice').style.visibility = 'hidden';
+    document.querySelector('#controls .speednote').textContent = 'Choose a metro to see its buses running.';
+    document.getElementById('controls-body').style.opacity = '0.6';
+    // what the circles' sizes mean (Sierra, 2026-11-17: "does it make sense for them to all be the same size?")
+    document.getElementById('sources').textContent = 'Larger circles: more buses and trains running at 8 a.m. on the metro\'s schedule date.';
     document.getElementById('about-body').innerHTML = `
       <h3>Schedules</h3><ul class="about-list">
         <li>Each metro's public transit, from GTFS files in the Transitland and Mobility Database archives.</li>
         <li>For each metro, the latest date behind the Access map's values on which every schedule file runs trips.</li>
         <li>Vehicles are placed by their scheduled stop times, not live locations, and move along their routes between stops.</li></ul>
       <h3>Map</h3><ul class="about-list">
-        <li>The green shading is jobs per square mile of land, counted at the workplace (LODES).</li></ul>
+        <li>The green shading shows jobs per square mile of land, counted at the workplace (LODES).</li></ul>
       <h3>Credits</h3><ul class="about-list">
         <li>Street map &copy; OpenStreetMap contributors.</li><li>Basemap by OpenFreeMap and OpenMapTiles.</li>
         <li>Vehicles drawn with deck.gl.</li></ul>`;
@@ -293,16 +301,26 @@
     const go = (s, view = '') => { location.href = `routes.html?metro=${s}${view}`; };
     map.on('load', () => {
       document.getElementById('loading').remove();
+      // green, the tab's color, and sized by the buses and trains running at 8 a.m., by the map page's formula (the
+      // square root of the share of the largest) (Sierra, 2026-11-17: "since that tab is green, maybe the circles should
+      // be green? and does it make sense for them to all be the same size?")
+      const veh = new Map(index.map((x) => [x.slug, x.vehicles_8am || 0]));
+      const maxV = Math.max(...veh.values());
       map.addSource('metros', { type: 'geojson', data: { type: 'FeatureCollection', features: metros
         .filter((m) => have.has(m.slug) && m.center)
-        .map((m) => ({ type: 'Feature', properties: { slug: m.slug, name: short.get(m.slug) }, geometry: { type: 'Point', coordinates: m.center } })) } });
+        .sort((a, b) => veh.get(b.slug) - veh.get(a.slug))   // the small ones drawn last, on top
+        .map((m) => ({ type: 'Feature', properties: { slug: m.slug, name: short.get(m.slug), n: veh.get(m.slug),
+          size: Math.sqrt(veh.get(m.slug) / maxV) }, geometry: { type: 'Point', coordinates: m.center } })) } });
       map.addLayer({ id: 'metro-dots', type: 'circle', source: 'metros', paint: {
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, 5.5, 7, 10], 'circle-color': '#115697',
-        'circle-stroke-color': '#ffffff', 'circle-stroke-width': 1.5 } });
+        'circle-radius': ['interpolate', ['linear'], ['zoom'],
+          3, ['+', 3, ['*', 6, ['get', 'size']]], 7, ['+', 5, ['*', 10, ['get', 'size']]]],
+        'circle-color': '#358847', 'circle-opacity': 0.9,   // the scale's sixth green
+        'circle-stroke-color': '#2f3440', 'circle-stroke-width': 1.25 } });
       const tip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, className: 'bg-tip', offset: 12 });
       map.on('mousemove', 'metro-dots', (e) => {
+        const p = e.features[0].properties;
         map.getCanvas().style.cursor = 'pointer';
-        tip.setLngLat(e.lngLat).setHTML(`${e.features[0].properties.name}<span class="act">Select to see its routes and buses</span>`).addTo(map);
+        tip.setLngLat(e.lngLat).setHTML(`${p.name}<span>${fmt.format(p.n)} ${p.n === 1 ? 'bus or train' : 'buses and trains'} running at 8 a.m.</span><span class="act">Select to see its routes and buses</span>`).addTo(map);
       });
       map.on('mouseleave', 'metro-dots', () => { map.getCanvas().style.cursor = ''; tip.remove(); });
       map.on('click', 'metro-dots', (e) => flyToMetro(map, e.features[0].properties.slug));
@@ -381,7 +399,7 @@
   const hasRail = meta.routes.some((r) => r.kind === 'rail'), hasFerry = meta.routes.some((r) => r.kind === 'ferry');
   const modes = hasRail && hasFerry ? 'Buses, trains and ferries' : hasRail ? 'Buses and trains' : hasFerry ? 'Buses and ferries' : 'Buses';
   const agTxt = ag.length === 0 ? 'the' : ag.length === 1 ? `the ${ag[0]}`
-    : ag.length <= 3 ? `the ${ag.slice(0, -1).join(', ')} and ${ag[ag.length - 1]}` : `the ${ag.slice(0, 2).join(', ')} and ${ag.length - 2} other agencies'`;
+    : ag.length <= 3 ? `the ${ag.slice(0, -1).join(', ')} and ${ag[ag.length - 1]}` : `the ${ag.slice(0, 2).join(', ')} and ${['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'][ag.length - 2] || ag.length - 2} other agencies'`;
   document.getElementById('sources').textContent =
     `${modes} follow ${agTxt} schedules for a ${meta.weekday} in ${meta.month} ${meta.year}, not live locations. Jobs: LODES, ${meta.jobs_year}.`;
   if (!meta.runs) {
@@ -581,7 +599,7 @@
     ]],
     ['Map', [
       meta.runs ? "Each route's line is its most common path in each direction, wider with more trips from 7 to 9 a.m. in the busier direction." : null,
-      `The green shading is jobs per square mile of land, counted at the workplace (LODES ${meta.jobs_year}).`,
+      `The green shading shows jobs per square mile of land, counted at the workplace (LODES ${meta.jobs_year}).`,
     ]],
     ['Selected block group', [
       meta.runs ? 'Only the vehicles that stop within 400 meters (a 5-minute walk) are shown.' : null,
