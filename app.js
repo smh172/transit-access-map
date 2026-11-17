@@ -315,6 +315,10 @@
 
   // ---------- the cards ----------
   const shortName = (name) => name.split(/[-,/]/)[0].trim();
+  // Each metro is named by its largest city and first state, "Seattle, WA" for Seattle-Tacoma-Bellevue, WA: in the
+  // menu since 2026-11-13 (Sierra: "Yes, shorten them"), and in the cards, labels and messages since 2026-11-17
+  // (Sierra: "its weird that the metro overview still has the hyphenated name"; the cards had kept the full name).
+  const menuName = (name) => `${shortName(name)}, ${name.slice(name.lastIndexOf(', ') + 2).split('-')[0]}`;
   const andList = (a) => (a.length < 3 ? a.join(' and ') : `${a.slice(0, -1).join(', ')} and ${a[a.length - 1]}`);
   const median = (a) => {
     if (!a.length) return NaN;
@@ -413,16 +417,19 @@
     }
     const near = jobs ? '' : `<div class="nb-row near"><span>Nearest ${L.one} by public transit</span>
         <strong>${!has(p[k('n')]) ? 'None within 90 minutes' : p[k('n')] === 0 ? 'In this block group' : `${p[k('n')]} minutes`}</strong></div>`;
-    return `<div class="card card-bg">
+    // the way back to the whole metro, as on the routes page (Sierra, 2026-11-17: "the access tab should have the same
+    // back button")
+    return `${isPinned ? `<button type="button" class="back back-metro">&lsaquo; Back to all of ${esc(metro)}</button>` : ''}
+      <div class="card card-bg">
       <div class="card-head">
         <span class="level level-bg">Block group</span>
         <div class="place">Block group ${g.slice(11)}, tract ${tractLabel(g.slice(5, 11))}, ${esc(state)}</div>
-        <div class="kicker">${esc(m.name)}</div>
+        <div class="kicker">${esc(menuName(m.name))}</div>
         ${filterOn() && !matches(p) ? '<div class="out-note">Outside the filter</div>' : ''}
         ${isPinned ? '<button type="button" class="unpin" aria-label="Clear the selected block group">&times;</button>' : ''}
         ${isPinned ? (S.picking
           ? '<div class="cmp-note">Now click another block group, or search for one, to compare. <button type="button" class="link cmp-cancel">Cancel</button></div>'
-          : '<button type="button" class="link cmp-start">Compare with another block group</button>') : ''}
+          : '<button type="button" class="btn-cmp cmp-start">Compare with another block group</button>') : ''}
       </div>
       <div class="section-title">${L.label} within ${S.tau} minutes</div>
       ${jobsRow('t', 'By public transit', t, p[k('tp')], inMetro, 'No public transit value for this block group.')}
@@ -463,7 +470,7 @@
     if (!m.mapped) {
       return `<div class="card card-metro">
         <div class="card-head"><span class="level level-metro">Metro overview</span>
-          <div class="place">${esc(m.name)}</div></div>
+          <div class="place">${esc(menuName(m.name))}</div></div>
         <p class="hint">This metro is not on the map. Its latest usable public transit schedules are from
         ${m.latest_usable_year}, and the map starts at ${S.meta.year_min}.</p>
       </div>`;
@@ -493,7 +500,7 @@
       : `No block group has one within 90 minutes by public transit.`}</p>`;
     return `<div class="card card-metro">
       <div class="card-head"><span class="level level-metro">Metro overview</span>
-        <div class="place">${esc(m.name)}</div></div>
+        <div class="place">${esc(menuName(m.name))}</div></div>
       <div class="section-title">${L.label} within ${S.tau} minutes, median block group</div>
       ${jobsRow('t', 'By public transit', sv.median.t, sv.pct.t, among('t'), 'No public transit values for this metro.', false)}
       ${jobsRow('c', 'By car, no traffic', sv.median.c, sv.pct.c, among('c'), 'This metro has no car travel times.', false)}
@@ -715,7 +722,7 @@
       return Promise.resolve();
     }
     if (S.pending.has(m.slug)) return S.pending.get(m.slug);
-    setStatus(`Loading ${m.name}…`);
+    setStatus(`Loading ${menuName(m.name)}…`);
     // The census layer is optional: if its file fails, the map still draws the metro.
     const optional = (url) => getJSON(url).catch((err) => { console.error(err); return {}; });
     const p = Promise.all([getJSON(`data/bg/${m.slug}.json`), optional(`data/acs/${m.slug}.json`), getJSON(`data/times/${m.slug}.json`)])
@@ -728,7 +735,7 @@
         evict();
         rebuild();
       })
-      .catch((err) => { console.error(err); setStatus(`${m.name} could not be loaded.`); })
+      .catch((err) => { console.error(err); setStatus(`${menuName(m.name)} could not be loaded.`); })
       .finally(() => {
         S.pending.delete(m.slug);
         if (!S.pending.size && $('#status').textContent.startsWith('Loading')) setStatus('');
@@ -780,9 +787,7 @@
 
   // ---------- panel controls ----------
   // The menu lists only the metros on the map (Sierra, 2026-11-13). A metro off the map is still named in the
-  // panel when the map is over it, and by the search. The menu names each metro by its largest city and first
-  // state, "Seattle, WA" for Seattle-Tacoma-Bellevue, WA (Sierra, 2026-11-13); the metro card keeps the full name.
-  const menuName = (name) => `${shortName(name)}, ${name.slice(name.lastIndexOf(', ') + 2).split('-')[0]}`;
+  // panel when the map is over it, and by the search. Names: menuName, above.
   function fillMetroSelect() {
     const sel = $('#metro');
     const shown = S.meta.metros.filter((x) => x.mapped)
@@ -879,6 +884,10 @@
 
   $('#card').addEventListener('click', (e) => {
     if (e.target.closest('.unpin')) unpin();
+    else if (e.target.closest('.back-metro')) {     // the block group goes, and the map returns to its metro
+      const m = S.pinnedProps && S.bySlug.get(S.pinnedProps.m);
+      if (m) goToMetro(m); else unpin();
+    }
     else if (e.target.closest('.cmp-start')) { S.picking = true; renderCard(); }
     else if (e.target.closest('.cmp-cancel')) { S.picking = false; renderCard(); }
     else if (e.target.closest('.cmp-stop')) clearCompare();
@@ -922,7 +931,18 @@
       pressed = false;
     });
   });
-  welcome.showModal();
+  // ... except when the page is opened from the routes page's "Access" tab (?from=routes)
+  if (!/from=routes/.test(location.search)) welcome.showModal();
+
+  // The "Routes and buses" tab opens the routes page on the metro in view, at the same view (Sierra, 2026-11-17)
+  // ... and the kept block group, in its own metro (Sierra, 2026-11-17, on keeping the selection across the tabs:
+  // "Yes, 1 to 4")
+  $('#to-routes').addEventListener('click', (e) => {
+    const v = (location.hash.match(/view=[^&]+/) || [''])[0];
+    const m = (S.pinnedProps && S.pinnedProps.m) || $('#metro').value;
+    const parts = [v, S.pinnedProps ? `bg=${S.pinnedProps.g}` : ''].filter(Boolean);
+    e.currentTarget.href = `routes.html${m ? `?metro=${m}` : ''}${parts.length ? `#${parts.join('&')}` : ''}`;
+  });
 
   $('#search').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -940,7 +960,7 @@
       const m = metroAt(lng, lat);
       if (!m) { setStatus('That place is outside the mapped metros.'); map.flyTo({ center: [lng, lat], zoom: 8 }); return; }
       if (!m.mapped) {
-        setStatus(`${m.name} is not on the map. Its latest usable public transit schedules are from ${m.latest_usable_year}.`);
+        setStatus(`${menuName(m.name)} is not on the map. Its latest usable public transit schedules are from ${m.latest_usable_year}.`);
         map.flyTo({ center: [lng, lat], zoom: 10 });
         return;
       }
@@ -1035,7 +1055,7 @@
       const m = S.bySlug.get(e.features[0].properties.slug);
       map.getCanvas().style.cursor = 'pointer';
       popup.setLngLat(m.center)
-        .setHTML(`<strong>${esc(m.name)}</strong>Median block group, ${S.tau} minutes: ${medianText(m)}.<br>Click to zoom in.`)
+        .setHTML(`<strong>${esc(menuName(m.name))}</strong>Median block group, ${S.tau} minutes: ${medianText(m)}.<br>Click to zoom in.`)
         .addTo(map);
       if (S.hoverMetro !== m) { S.hoverMetro = m; renderCard(); }   // the panel shows the metro as a whole
     });

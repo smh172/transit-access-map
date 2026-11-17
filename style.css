@@ -9,6 +9,10 @@
   --page: #eef0f2;
   --brand: #1d2027;
   --brand-ink: #ffffff;
+  /* the panel's header and the windows' heads in the map's blue, the accent (Sierra, 2026-11-17, shown black, navy,
+     this blue and white: "I like the bright blue"); --brand stays ink for the pressed buttons and the A and B tags,
+     which sit over the map's blues */
+  --header: #115697;
   --accent: #115697;
   --select: #f1f2f4;
   --focus: rgba(29, 32, 39, 0.16);
@@ -33,7 +37,7 @@ button, input, select { font: inherit; color: inherit; }
 /* ---------- panel ---------- */
 #panel { display: flex; flex-direction: column; background: var(--panel); border-right: 1px solid var(--line);
   min-height: 0; z-index: 2; box-shadow: 2px 0 8px rgba(20, 22, 28, 0.08); }
-.brand { background: var(--brand); color: var(--brand-ink); padding: 12px 18px 11px; }
+.brand { background: var(--header); color: var(--brand-ink); padding: 12px 18px 11px; }
 .brand h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: 0.01em; line-height: 1.15; }
 .brand .tagline { margin: 2px 0 0; font-size: 14px; font-weight: 600; line-height: 1.3; }
 .panel-body { padding: 10px 18px 8px; overflow-y: auto; flex: 1; min-height: 0; }
@@ -214,7 +218,7 @@ dialog.sheet { width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 4
   border-radius: 12px; overflow: auto; color: var(--ink); box-shadow: 0 16px 48px rgba(20, 22, 28, 0.4); }
 dialog.sheet::backdrop { background: rgba(20, 22, 28, 0.55); }
 dialog#contact { width: min(440px, calc(100vw - 32px)); }
-.sheet-head { background: var(--brand); color: #fff; padding: 22px 26px 18px; }
+.sheet-head { background: var(--header); color: #fff; padding: 22px 26px 18px; }
 .sheet-kicker { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.8; }
 .sheet-head h2 { margin: 4px 0 3px; font-size: 28px; line-height: 1.15; }
 .sheet-tagline { margin: 0 0 8px; font-size: 16.5px; font-weight: 600; line-height: 1.3; }
@@ -303,7 +307,21 @@ dialog#about .about-glossary { margin: 0 0 6px; }
 dialog#about .about-glossary dt { font-weight: 700; margin-top: 6px; }
 dialog#about .about-glossary dd { margin: 0 0 0 14px; }
 /* ---------- comparing two block groups ---------- */
-.cmp-start, .cmp-stop { display: inline-block; margin-top: 6px; font-size: 13px; }
+/* "Compare with another block group" is a button across the card, under the metro's name (Sierra, 2026-11-17:
+   "Yes, make it a button"; it had been a 13 px link that no hint mentioned). "Stop comparing" stays a link. */
+.btn-cmp { display: block; width: 100%; margin: 8px 0 2px; padding: 6px 10px; border: 1px solid var(--accent);
+  border-radius: 6px; background: #fff; color: var(--accent); font-size: 13.5px; font-weight: 700; line-height: 1.2;
+  cursor: pointer; }
+.btn-cmp:hover { background: color-mix(in srgb, var(--accent) 8%, #fff); }
+.btn-cmp:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cmp-stop { display: inline-block; margin-top: 6px; font-size: 13px; }
+/* the way back to the whole metro, above a selected block group's card, on both pages (Sierra, 2026-11-17: "the
+   access tab should have the same back button") */
+.back { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; margin: 10px 0 0;
+  padding: 7px 10px; border: 1px solid var(--accent); border-radius: 6px; background: var(--accent); color: #fff;
+  font-size: 14px; font-weight: 700; cursor: pointer; }
+.back:hover { background: #0d4a85; }
+.back:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .cmp-note { margin-top: 6px; padding: 6px 8px; border-radius: 6px; font-size: 13px;
   background: color-mix(in srgb, var(--accent) 8%, #fff); }
 .cmp-who { display: flex; align-items: flex-start; gap: 8px; margin-top: 6px; }
@@ -324,3 +342,10 @@ dialog#about .about-glossary dd { margin: 0 0 0 14px; }
   background: var(--brand); color: #fff; font: 700 12px/1 var(--font); border: 2px solid #fff;
   box-shadow: 0 1px 4px rgba(20, 22, 28, 0.4); }
 dialog#about .about-list li { margin: 2px 0; }
+
+/* ---------- the switch between this page and the routes page (routes.html), under the byline (Sierra, 2026-11-17) */
+.views { display: flex; gap: 6px; margin-top: 8px; }
+.views a { flex: 1; padding: 5px 8px; border: 1px solid rgba(255, 255, 255, 0.5); border-radius: 6px; color: #fff;
+           font-size: 13px; font-weight: 700; text-align: center; text-decoration: none; cursor: pointer; }
+.views a.on { background: #fff; border-color: #fff; color: var(--ink); cursor: default; }
+.views a:not(.on):hover { background: rgba(255, 255, 255, 0.14); }

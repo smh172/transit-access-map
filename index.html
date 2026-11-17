@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
   <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
-  <link href="style.css" rel="stylesheet">
+  <link href="style.css?v=f87855119e" rel="stylesheet">
 </head>
 <body>
   <div id="app">
@@ -28,6 +28,12 @@
         <h1>Within Reach</h1>
         <p class="tagline">Access to jobs and essential services by public transit and car</p>
         <p class="byline">Sierra Arnold, Xavier University</p>
+        <!-- the switch to the routes page (Sierra, 2026-11-17, shown the prototype: "I like that."; "can we exapnd to
+             all cities") -->
+        <nav class="views" aria-label="Views">
+          <a class="view on" aria-current="page">Access</a>
+          <a class="view" id="to-routes" href="routes.html">Routes and buses</a>
+        </nav>
       </header>
 
       <div class="panel-body">
@@ -153,6 +159,9 @@
       <p>Households without a car are largely limited to the jobs and services they can reach by public transit.
         This map counts the jobs, grocery stores, banks, hospitals, libraries and community colleges within reach of
         each neighborhood (a Census block group), by public transit and by car.</p>
+      <!-- the second tab (Sierra, 2026-11-17, on mentioning it here and in the About window: "Yes, 1 to 4") -->
+      <p>The Routes and buses tab shows each metro's public transit routes, with its buses and trains moving on their
+        morning schedules over where the jobs are.</p>
       <h3>Related papers</h3>
       <ul class="welcome-papers">
         <li><a href="https://github.com/smh172/evolution-transit-access/blob/main/evolution_transit_access.pdf" target="_blank" rel="noopener">The Evolution of Transit Access to Jobs in American Cities</a> <span>(draft)</span></li>
@@ -203,6 +212,8 @@
     </ul>
     <h3>Neighborhood values</h3>
     <p>Population, median household income, the share of people below twice the poverty line, the share of households without a car and the shares by race and ethnicity come from the American Community Survey, 2018–22. White, Black and Asian count people who are not Hispanic; Hispanic counts people of any race. The income filter splits each metro's block groups into four groups of equal size by median household income. The race and ethnicity filter keeps majority-White block groups, where more than half of the residents are White and not Hispanic, or majority non-White ones, where more than half are Black, Asian, Hispanic (of any race) or of another group. For Hartford, Jacksonville, Palm Bay and Riverside, which the papers' data lack, the census values come from the same survey files, added for this map.</p>
+    <h3>Routes and buses</h3>
+    <p>The Routes and buses tab draws each metro's public transit routes and moves its buses and trains on one weekday's published schedules, from 6:30 to 9:30 a.m., over the jobs per square mile of each block group. Its own About window lists each metro's schedules and date.</p>
     <h3>Glossary</h3>
     <dl class="about-glossary">
       <dt>Block group</dt><dd>A Census Bureau area of about 600 to 3,000 people, the smallest the map shows; the map also calls it a neighborhood.</dd>
@@ -220,6 +231,6 @@
   </dialog>
 
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-  <script src="app.js"></script>
+  <script src="app.js?v=01e62ad75b"></script>
 </body>
 </html>
