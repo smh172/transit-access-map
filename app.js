@@ -467,8 +467,12 @@
     if (!S.meta || !S.ix) return '';
     const m = S.hoverMetro || metroAtCenter();
     if (!m) return '<p class="hint">Choose a metro or search for an address, then select a neighborhood.</p>';
+    // at a metro's level, the way back out (Sierra, 2026-11-17: "there should be a back to national map button, like
+    // the back to chicago changes to back to national when youre already at the city level"); not while the pointer
+    // is on a metro's circle of the national map
+    const back = S.hoverMetro ? '' : '<button type="button" class="back back-national">&lsaquo; Back to the national map</button>';
     if (!m.mapped) {
-      return `<div class="card card-metro">
+      return `${back}<div class="card card-metro">
         <div class="card-head"><span class="level level-metro">Metro overview</span>
           <div class="place">${esc(menuName(m.name))}</div></div>
         <p class="hint">This metro is not on the map. Its latest usable public transit schedules are from
@@ -498,7 +502,7 @@
     const extra = jobs ? '' : `<p class="facts">${sv.reach}% of block groups reach at least one ${L.one} by public transit within
       ${S.tau} minutes. ${has(sm.near) ? `Where one is within 90 minutes, the median trip to the nearest takes ${sm.near} minutes.`
       : `No block group has one within 90 minutes by public transit.`}</p>`;
-    return `<div class="card card-metro">
+    return `${back}<div class="card card-metro">
       <div class="card-head"><span class="level level-metro">Metro overview</span>
         <div class="place">${esc(menuName(m.name))}</div></div>
       <div class="section-title">${L.label} within ${S.tau} minutes, median block group</div>
@@ -887,6 +891,10 @@
     else if (e.target.closest('.back-metro')) {     // the block group goes, and the map returns to its metro
       const m = S.pinnedProps && S.bySlug.get(S.pinnedProps.m);
       if (m) goToMetro(m); else unpin();
+    }
+    else if (e.target.closest('.back-national')) {  // from a metro back out to the whole country, the opening view
+      showMetro();
+      map.fitBounds(US_BOUNDS, { padding: 30 });
     }
     else if (e.target.closest('.cmp-start')) { S.picking = true; renderCard(); }
     else if (e.target.closest('.cmp-cancel')) { S.picking = false; renderCard(); }

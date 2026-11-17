@@ -26,7 +26,7 @@
      and zoom buttons (Sierra, 2026-11-17: "the access left panel is big and the routes left panel is small. Both
      designs work, but need to be aligned"; "in general, where possible, align them"; "like make the zooms the same,
      where the buttons are the same, etc"). Below it, only what this page adds. -->
-<link href="style.css?v=f87855119e" rel="stylesheet">
+<link href="style.css?v=122505bd78" rel="stylesheet">
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <!-- the vehicles are drawn by deck.gl, over the map: the map library alone ran Chicago's 1,400 at 3 frames a second -->
 <script src="https://unpkg.com/deck.gl@9.0.38/dist.min.js"></script>
@@ -108,6 +108,9 @@
       <select id="metro"></select>
       <p id="status" class="status" role="status" aria-live="polite"></p>
       <div id="controls-slot"></div>
+      <!-- at a metro's level, the way out to the national map, as on the map page (Sierra, 2026-11-17: "there should be
+           a back to national map button") -->
+      <button id="to-national" type="button" class="back" hidden>&lsaquo; Back to the national map</button>
       <div id="clickhint" class="callout"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 2.5l14.5 8.2-6.3 1.7-2.6 6.4z" fill="#115697" stroke="#fff" stroke-width="1.2" stroke-linejoin="round"/></svg>
         <span id="clickhint-text"><strong>Select a block group</strong> to see its nearby buses and the jobs it can reach.</span></div>
       <div id="note" class="note" hidden></div>
@@ -228,11 +231,107 @@
   const metros = metrosAll.metros || metrosAll;
   const have = new Set(index.map((x) => x.slug));
   const inBox = (b, lon, lat) => lon >= b[0] && lon <= b[2] && lat >= b[1] && lat <= b[3];
+  // a metro chosen by its circle or the menu: the map flies to it as the map page's does (its box, padding 40, zoom 11
+  // at most), then the metro's page opens at the view it reached (Sierra, 2026-11-17: "i like the slow zoom in on the
+  // acces, the routes doesnt do that")
+  function flyToMetro(m, s) {
+    const rec = metros.find((x) => x.slug === s);
+    const go = () => {
+      const c = m.getCenter();
+      location.href = `routes.html?metro=${s}#view=${m.getZoom().toFixed(2)}/${c.lat.toFixed(4)}/${c.lng.toFixed(4)}`;
+    };
+    const cam = rec && m.cameraForBounds([[rec.bbox[0], rec.bbox[1]], [rec.bbox[2], rec.bbox[3]]], { padding: 40, maxZoom: METRO_MAX_ZOOM });
+    if (!cam) { location.href = `routes.html?metro=${s}`; return; }
+    m.setMinZoom(2);
+    m.once('moveend', go);
+    m.flyTo({ center: cam.center, zoom: cam.zoom });
+  }
   const hv = location.hash.match(/view=([\d.]+)\/(-?[\d.]+)\/(-?[\d.]+)/);
   let slug = new URLSearchParams(location.search).get('metro');
   if (!have.has(slug)) {
-    const hit = hv && metros.find((m) => have.has(m.slug) && inBox(m.bbox, +hv[3], +hv[2]));
-    slug = hit ? hit.slug : 'cincinnati-oh-ky-in';
+    // a view in the address over a metro and close enough to be its own (as from the map page's tab), else no metro:
+    // the national map (it was Cincinnati until 2026-11-17; Sierra: "the routes and busses tab seems to only have cincy rn")
+    const hit = hv && +hv[1] >= 8 && metros.find((m) => have.has(m.slug) && inBox(m.bbox, +hv[3], +hv[2]));
+    slug = hit ? hit.slug : null;
+  }
+  if (!slug) { national(); return; }
+
+  // ---------- the national map: the 84 metros as circles; one is chosen by its circle, the menu or a search ----------
+  function national() {
+    const US_BOUNDS = [[-124.8, 24.4], [-66.9, 49.4]];
+    const short = new Map(index.map((x) => [x.slug, x.short]));
+    const menu = document.getElementById('metro');
+    menu.innerHTML = '<option value="">Choose a metro</option>';
+    for (const x of [...index].sort((a, b) => a.short.localeCompare(b.short))) {
+      const o = document.createElement('option');
+      o.value = x.slug; o.textContent = x.short;
+      menu.appendChild(o);
+    }
+    menu.addEventListener('change', () => { if (menu.value) flyToMetro(map, menu.value); });
+    document.getElementById('clickhint-text').innerHTML =
+      '<strong>Choose a metro</strong>, or search for an address, to see its public transit routes and buses.';
+    for (const id of ['controls', 'legend', 'key', 'sources']) document.getElementById(id).style.display = 'none';
+    document.getElementById('about-body').innerHTML = `
+      <h3>Schedules</h3><ul class="about-list">
+        <li>Each metro's public transit, from GTFS files in the Transitland and Mobility Database archives.</li>
+        <li>For each metro, the latest date behind the Access map's values on which every schedule file runs trips.</li>
+        <li>Vehicles are placed by their scheduled stop times, not live locations, and move along their routes between stops.</li></ul>
+      <h3>Map</h3><ul class="about-list">
+        <li>The green shading is jobs per square mile of land, counted at the workplace (LODES).</li></ul>
+      <h3>Credits</h3><ul class="about-list">
+        <li>Street map &copy; OpenStreetMap contributors.</li><li>Basemap by OpenFreeMap and OpenMapTiles.</li>
+        <li>Vehicles drawn with deck.gl.</li></ul>`;
+    const map = new maplibregl.Map({
+      container: 'map', style: 'https://tiles.openfreemap.org/styles/positron', bounds: US_BOUNDS,
+      fitBoundsOptions: { padding: 30 }, minZoom: 2.5, maxZoom: 16, dragRotate: false, pitchWithRotate: false,
+      touchPitch: false, attributionControl: false,
+    });
+    map.touchZoomRotate.disableRotation();
+    map.addControl(new maplibregl.AttributionControl({ compact: true,
+      customAttribution: 'Routes data: S. Arnold. Schedules include <a href="https://www.transit.land/terms" target="_blank" rel="noopener">Transitland</a> data.' }), 'bottom-right');
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
+    const go = (s, view = '') => { location.href = `routes.html?metro=${s}${view}`; };
+    map.on('load', () => {
+      document.getElementById('loading').remove();
+      map.addSource('metros', { type: 'geojson', data: { type: 'FeatureCollection', features: metros
+        .filter((m) => have.has(m.slug) && m.center)
+        .map((m) => ({ type: 'Feature', properties: { slug: m.slug, name: short.get(m.slug) }, geometry: { type: 'Point', coordinates: m.center } })) } });
+      map.addLayer({ id: 'metro-dots', type: 'circle', source: 'metros', paint: {
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, 5.5, 7, 10], 'circle-color': '#115697',
+        'circle-stroke-color': '#ffffff', 'circle-stroke-width': 1.5 } });
+      const tip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, className: 'bg-tip', offset: 12 });
+      map.on('mousemove', 'metro-dots', (e) => {
+        map.getCanvas().style.cursor = 'pointer';
+        tip.setLngLat(e.lngLat).setHTML(`${e.features[0].properties.name}<span class="act">Select to see its routes and buses</span>`).addTo(map);
+      });
+      map.on('mouseleave', 'metro-dots', () => { map.getCanvas().style.cursor = ''; tip.remove(); });
+      map.on('click', 'metro-dots', (e) => flyToMetro(map, e.features[0].properties.slug));
+    });
+    // the address search: a place in a metro with routes opens that metro there, as from the metro view
+    const setStatus = (msg) => { document.getElementById('status').textContent = msg; };
+    document.getElementById('search').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const q = document.getElementById('q').value.trim();
+      if (!q) return;
+      setStatus('Searching…');
+      try {
+        const url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=us&q=' + encodeURIComponent(q);
+        const res = await fetch(url, { headers: { Accept: 'application/json' } });
+        if (!res.ok) throw new Error(`search: HTTP ${res.status}`);
+        const hits = await res.json();
+        if (!hits.length) { setStatus('No match found.'); return; }
+        const lng = Number(hits[0].lon), lat = Number(hits[0].lat);
+        const area = (m) => (m.bbox[2] - m.bbox[0]) * (m.bbox[3] - m.bbox[1]);
+        const m = metros.filter((x) => have.has(x.slug) && inBox(x.bbox, lng, lat)).sort((a, b) => area(a) - area(b))[0];
+        if (!m) { setStatus('That place is outside the mapped metros.'); return; }
+        go(m.slug, `#view=${SEARCH_ZOOM}/${lat.toFixed(5)}/${lng.toFixed(5)}`);
+      } catch (err) {
+        console.error(err);
+        setStatus('Search is not available right now.');
+      }
+    });
+    // the map page's tab opens the map page's national view
+    document.getElementById('to-access').addEventListener('click', (e) => { e.currentTarget.href = 'index.html?from=routes'; });
   }
   const base = `data/routes/${slug}/`;
   // the routes data and the basemap load at the same time (Sierra, 2026-11-17: "Yes, do it"): the files start
@@ -252,7 +351,8 @@
   const map = new maplibregl.Map({
     container: 'map', style: 'https://tiles.openfreemap.org/styles/positron',
     bounds, fitBoundsOptions: { padding: 40, maxZoom: METRO_MAX_ZOOM },
-    maxBounds: [[bb[0] - 0.6, bb[1] - 0.45], [bb[2] + 0.6, bb[3] + 0.45]], maxZoom: 16,
+    maxZoom: 16,   // no bounds: they forced a closer zoom than the map page's on wide screens (Sierra, 2026-11-17:
+                   // "when im at the city level the zoom for the two tabs is different"); the minimum zoom keeps the metro's scale
     dragRotate: false, pitchWithRotate: false, touchPitch: false, attributionControl: false, hash: 'view',
   });
   map.touchZoomRotate.disableRotation();
@@ -274,7 +374,7 @@
     o.value = x.slug; o.textContent = x.short; o.selected = x.slug === slug;
     menu.appendChild(o);
   }
-  menu.addEventListener('change', () => { location.href = `routes.html?metro=${menu.value}`; });
+  menu.addEventListener('change', () => flyToMetro(map, menu.value));
 
   // the sources, from the metro's own agencies and date
   const ag = meta.agencies;
@@ -320,6 +420,13 @@
 
   // ---------- the map's view and layers, once the data and the basemap are both in ----------
   document.getElementById('loading').remove();
+  document.getElementById('to-national').hidden = false;
+  // out to the country with the map's own motion, as on the map page, then the national view opens there
+  document.getElementById('to-national').addEventListener('click', () => {
+    map.setMinZoom(2);
+    map.once('moveend', () => { location.href = 'routes.html'; });
+    map.fitBounds([[-124.8, 24.4], [-66.9, 49.4]], { padding: 30 });
+  });
   // the metro's view, as the map page computes it; a metro too spread out for zoom 7 opens on its center
   const metroCam = map.cameraForBounds(bounds, { padding: 40, maxZoom: METRO_MAX_ZOOM });
   const HOME = metroCam && metroCam.zoom >= LOAD_ZOOM + 0.5 ? { center: metroCam.center, zoom: metroCam.zoom }
@@ -600,6 +707,7 @@
   function renderCard() {
     const el = document.getElementById('sel');
     const g = hoverG || (sel ? sel.g : '');
+    document.getElementById('to-national').hidden = !!g;   // the way out to the country, while no block group shows
     if (!g) { el.classList.remove('on'); el.innerHTML = ''; hint.classList.remove('off'); return; }
     el.innerHTML = cardHTML(g, !!sel && sel.g === g);
     el.classList.add('on');
