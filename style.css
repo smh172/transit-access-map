@@ -227,6 +227,8 @@ dialog#contact { width: min(440px, calc(100vw - 32px)); }
 .sheet-body p { margin: 0 0 10px; }
 .sheet-body h3 { margin: 14px 0 7px; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
 #welcome .sheet-body h3 { margin-top: 24px; }
+.welcome-tabs { margin: 0 0 10px; padding-left: 20px; }
+.welcome-tabs li { margin: 0 0 6px; }
 .welcome-papers { list-style: none; margin: 0 0 12px; padding: 0; }
 .welcome-papers li { padding: 8px 11px; margin-bottom: 6px; border: 1px solid var(--line); border-radius: 8px; }
 .welcome-papers a { color: var(--accent); font-weight: 600; text-decoration: none; }
@@ -349,15 +351,25 @@ dialog.about .about-glossary dd { margin: 0 0 0 14px; }
   box-shadow: 0 1px 4px rgba(20, 22, 28, 0.4); }
 dialog.about .about-list li { margin: 2px 0; }
 
-/* ---------- the switch between the two tabs, under the byline (Sierra, 2026-11-17) */
+/* ---------- the switch between the two tabs, under the byline (Sierra, 2026-11-17). Each tab is as wide as its name
+   and the space left is shared, so "Jobs and essential services" fits on one line (2026-11-18); on a narrower screen
+   a name wraps, centered in its box. */
 .views { display: flex; gap: 6px; margin-top: 8px; }
-.views a { flex: 1; padding: 5px 8px; border: 1px solid rgba(255, 255, 255, 0.5); border-radius: 6px; color: #fff;
+.views a { flex: 1 1 auto; display: flex; align-items: center; justify-content: center; padding: 5px 8px;
+           border: 1px solid rgba(255, 255, 255, 0.5); border-radius: 6px; color: #fff;
            font-size: 13px; font-weight: 700; text-align: center; text-decoration: none; cursor: pointer; }
 .views a.on { background: #fff; border-color: #fff; color: var(--ink); cursor: default; }
 .views a:not(.on):hover { background: rgba(255, 255, 255, 0.14); }
 
 /* ---------- one page, two tabs (2026-11-17): each tab's own parts show only on that tab (body[data-tab], app.js) */
 body[data-tab="access"] .for-routes, body[data-tab="routes"] .for-access { display: none !important; }
+/* The Routes and buses tab in its map's dark green, the Jobs and essential services tab in its map's blue: the
+   header, the buttons, links and highlights, and the windows' heads (Sierra, 2026-11-18: "maybe since the lead tab
+   is green the fonts and buttons should be switched to the dark green from the blue"; asked "Build all four changes
+   on the branch?": "yes build"). #153a16, a forest green darker than the routes scale's darkest step: first
+   #1d6c35, the second-darkest, then #0a4f24, the darkest (Sierra: "make it a darker green"; "darker than that
+   like a forest green"). */
+body[data-tab="routes"] { --header: #153a16; --accent: #153a16; }
 
 /* ---------- the Routes and buses tab (routes.js); until 2026-11-17 the routes page's own styles ---------- */
 #r-loading { position: absolute; inset: 0; display: grid; place-items: center; z-index: 1; color: var(--muted);
@@ -370,8 +382,9 @@ body[data-tab="routes"] #legend { z-index: 2; }
 body[data-tab="routes"] .maplibregl-popup, body[data-tab="routes"] .maplibregl-marker { z-index: 3; }
 /* the call to select a block group (Sierra, 2026-11-17: "it needs to be more obvious that you can click block groups") */
 .callout { display: flex; gap: 9px; align-items: flex-start; margin: 10px 0; padding: 8px 10px; border-radius: 8px;
-           background: #eaf1f9; box-shadow: inset 3px 0 0 var(--accent); font-size: 14px; line-height: 1.35; }
-.callout svg { flex: none; margin-top: 1px; }
+           background: color-mix(in srgb, var(--accent) 9%, #fff); box-shadow: inset 3px 0 0 var(--accent);
+           font-size: 14px; line-height: 1.35; }
+.callout svg { flex: none; margin-top: 1px; color: var(--accent); }
 .callout.off { display: none; }
 .key { display: grid; grid-template-columns: 54px 1fr; align-items: center; gap: 4px 10px; margin: 10px 0 6px;
        font-size: 13.5px; }
@@ -403,6 +416,7 @@ body[data-tab="routes"] .maplibregl-popup, body[data-tab="routes"] .maplibregl-m
 .toggles { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 8px; font-size: 13px; }
 .toggles label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
 .toggles label[hidden] { display: none; }
+.toggles input { accent-color: var(--accent); }
 /* the label at the pointer: the Access tab's, with a second line */
 body[data-tab="routes"] .bg-tip .maplibregl-popup-content span { display: block; font-weight: 400; color: var(--muted); }
 body[data-tab="routes"] .bg-tip .maplibregl-popup-content span.act { margin-top: 2px; font-weight: 700; color: var(--accent); }

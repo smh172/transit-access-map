@@ -81,10 +81,11 @@
     }
     return { slug, bg: (location.hash.match(/(?:^#|&)bg=(\d{12})/) || [])[1] || null };
   }
-  // a metro's view, as the Access tab computes it (its box, padding 40, zoom 11 at most); a metro too spread out for
-  // zoom 7 opens on its center
-  function homeOf(rec) {
-    const cam = map.cameraForBounds([[rec.bbox[0], rec.bbox[1]], [rec.bbox[2], rec.bbox[3]]], { padding: 40, maxZoom: METRO_MAX_ZOOM });
+  // a metro's view, as the Access tab computes it: where the middle 90% of its residents live, with a 5% margin
+  // (app.js, homeBox; since 2026-11-18), padding 40, zoom 11 at most; a metro too spread out for zoom 7 opens on its
+  // center. With b = its whole box, the view of the whole metro.
+  function homeOf(rec, b = WR.homeBox(rec)) {
+    const cam = map.cameraForBounds([[b[0], b[1]], [b[2], b[3]]], { padding: 40, maxZoom: METRO_MAX_ZOOM });
     return cam && cam.zoom >= LOAD_ZOOM + 0.5 ? { center: cam.center, zoom: cam.zoom }
       : { center: rec.center || map.getCenter(), zoom: LOAD_ZOOM + 1 };
   }
@@ -92,35 +93,43 @@
   const kept = (rec) => { const c = map.getCenter(); return map.getZoom() >= 8 && inBox(rec.bbox, c.lng, c.lat); };
 
   // ---------- one metro's files: its block groups and its seven routes files, one metro in memory ----------
-  // The map draws a metro from its block groups and five of the files; the stop calls and the block groups' stops,
-  // which only the card and a selection need (43% of the routes bytes; 1.8 of Chicago's 5.1 MB as sent), load right
-  // after (Sierra, 2026-11-18, asked "Build speed-ups (a) and (b) next?": "Yes, a and b").
+  // The map draws a metro from its block groups and five of the routes files. What only the card and a selection
+  // need loads right after: the stop calls and the block groups' stops (43% of the routes bytes; 1.8 of Chicago's
+  // 5.1 MB as sent; Sierra, 2026-11-18, asked "Build speed-ups (a) and (b) next?": "Yes, a and b"), and the jobs within
+  // 30 minutes, from the Access tab's jobs file, which both tabs read since the boundary files hold no values
+  // (2026-11-18: "do g and h").
   const FIRST = ['meta', 'routes', 'trips', 'stops', 'jobs'];
   const LATER = ['calls', 'bgstops'];
   function load(slug) {
     if (data && data.slug === slug) return data.ready;
     const entry = { slug };
     entry.ready = Promise.all([getJSON(`data/bg/${slug}.json`), ...FIRST.map((n) => getJSON(`data/routes/${slug}/${n}.json`))])
-      .then((files) => { const X = prepare(slug, files); loadCalls(X); return X; });
+      .then((files) => { const X = prepare(slug, files); loadLater(X); return X; });
     entry.ready.catch(() => { if (data === entry) data = null; });   // a failed load is tried again next time
     data = entry;
     return entry.ready;
   }
-  // the stop calls and the block groups' stops; when they come in, the card and a selection made before them are
-  // completed. If they fail, the card says the buses nearby could not be loaded.
-  function loadCalls(X) {
-    if (!X.callsReady) {
-      X.callsReady = Promise.all(LATER.map((n) => getJSON(`data/routes/${X.slug}/${n}.json`)))
-        .then(([callsRaw, bgstops]) => { X.calls = callsRaw.calls; X.bgstops = bgstops; },
-          (err) => { console.error(err); X.callsFailed = true; })
+  // what only the card and a selection need; when it comes in, the card and a selection made before it are completed.
+  // If it fails, the card says so.
+  function loadLater(X) {
+    if (!X.laterReady) {
+      X.laterReady = Promise.all([...LATER.map((n) => getJSON(`data/routes/${X.slug}/${n}.json`)), getJSON(`data/times/${X.slug}.jobs.json`)])
+        .then(([callsRaw, bgstops, times]) => {
+          X.calls = callsRaw.calls;
+          X.bgstops = bgstops;
+          // the jobs within 30 minutes by public transit and by car, and their ranks in the metro
+          const at = ['j30t', 'j30c', 'j30tp', 'j30cp'].map((f) => times.fields.indexOf(f));
+          for (const [g, p] of X.bgByG) { const v = times.bg[g]; if (v) [p.t, p.c, p.tp, p.cp] = at.map((i) => v[i]); }
+        }, (err) => { console.error(err); X.laterFailed = true; })
         .then(() => {
+          X.laterIn = true;
           X.servingCache.clear();
           if (M !== X) return;
           if (sel) { const sv = serving(sel.g); if (sv) Object.assign(sel, { trips: sv.trips, routes: sv.routes, stops: sv.stops }); }
           if (active && view === 'metro') { if (sel) applySel(); renderCard(); }
         });
     }
-    return X.callsReady;
+    return X.laterReady;
   }
   let deckLoad = null;
   function loadDeck() {
@@ -140,18 +149,17 @@
 
   // what the tab draws and writes for a metro, from its files
   function prepare(slug, [bgfc, meta, routes, tripsRaw, stops, jobs]) {
-    // calls and bgstops come in later (loadCalls)
-    const X = { slug, meta, routes, stops, bgfc, calls: null, bgstops: null, callsFailed: false, servingCache: new Map() };
+    // the stop calls, the block groups' stops and the jobs within 30 minutes come in later (loadLater)
+    const X = { slug, meta, routes, stops, bgfc, calls: null, bgstops: null, laterIn: false, laterFailed: false, servingCache: new Map() };
     X.rec = metros.find((m) => m.slug === slug) || {};
     X.city = meta.short.split(',')[0];
-    // block groups: the map's own shapes and 30-minute values, with the jobs per square mile in greens
+    // block groups: the map's own shapes, with the jobs here and the jobs per square mile in greens
     const jb = meta.jbreaks, greens = meta.greens;
     const jclass = (d) => { let i = 0; while (i < jb.length && d >= jb[i]) i += 1; return i; };
     for (const f of bgfc.features) {
       const p = f.properties, j = jobs[p.g];
       p.jobs = j ? j[0] : null; p.dens = j ? j[1] : null;
       p.jfill = p.dens == null ? NO_VALUE : greens[jclass(p.dens)];
-      p.v = p.t;                                 // jobs within 30 minutes by public transit (c: by car)
     }
     X.bgByG = new Map(bgfc.features.map((f) => [f.properties.g, f.properties]));
     X.bgFeat = new Map(bgfc.features.map((f) => [f.properties.g, f]));
@@ -192,8 +200,8 @@
     const sections = [
       ['Schedules', [
         meta.runs ? `${agList}, from GTFS files in the Transitland and Mobility Database archives.` : null,
-        meta.runs ? `${day}, the latest date behind the Access map's ${meta.map_year} values on which every schedule file runs trips.`
-          : `${day}, the date behind the Access map's ${meta.map_year} values.`,
+        meta.runs ? `${day}, the latest date behind the Jobs and essential services tab's ${meta.map_year} values on which every schedule file runs trips.`
+          : `${day}, the date behind the Jobs and essential services tab's ${meta.map_year} values.`,
         meta.runs ? 'Vehicles are placed by their scheduled stop times, not live locations, and move along their routes between stops.' : null,
         meta.runs ? 'The clock runs from 6:30 to 9:30 a.m., at 3 minutes of schedule per second.' : null,
       ]],
@@ -203,7 +211,7 @@
       ]],
       ['Selected block group', [
         meta.runs ? 'Only the vehicles that stop within 400 meters (a 5-minute walk) are shown.' : null,
-        'Jobs within 30 minutes by public transit and by car with no traffic, as on the Access map.',
+        'Jobs within 30 minutes by public transit and by car with no traffic, as on the Jobs and essential services tab.',
       ]],
       ['Credits', ['Street map &copy; OpenStreetMap contributors.', 'Basemap by OpenFreeMap and OpenMapTiles.', 'Vehicles drawn with deck.gl.']],
     ];
@@ -437,7 +445,7 @@
   const NATIONAL_ABOUT = `
       <h3>Schedules</h3><ul class="about-list">
         <li>Each metro's public transit, from GTFS files in the Transitland and Mobility Database archives.</li>
-        <li>For each metro, the latest date behind the Access map's values on which every schedule file runs trips.</li>
+        <li>For each metro, the latest date behind the Jobs and essential services tab's values on which every schedule file runs trips.</li>
         <li>Vehicles are placed by their scheduled stop times, not live locations, and move along their routes between stops.</li></ul>
       <h3>Map</h3><ul class="about-list">
         <li>The green shading shows jobs per square mile of land, counted at the workplace (LODES).</li></ul>
@@ -519,7 +527,7 @@
   // the runs that stop within a 5-minute walk of a block group, its stops, its routes, and its stops by buses 7 to 9 a.m.;
   // null until the stop calls are in, or if they could not be loaded
   function serving(g) {
-    if (!M.calls || M.callsFailed) return null;
+    if (!M.laterIn || M.laterFailed) return null;
     if (M.servingCache.has(g)) return M.servingCache.get(g);
     const S = new Set(M.bgstops[g] || []);
     const serve = new Set(), routesSet = new Set();
@@ -559,9 +567,13 @@
     } else {
       rn = 'This needs both a public transit and a car value.';
     }
-    const where = !sv ? (M.callsFailed ? 'The buses nearby could not be loaded.' : '')
+    const where = !sv ? (M.laterFailed ? 'The jobs within 30 minutes and the buses nearby could not be loaded.' : '')
       : sv.stops.length === 0 ? 'No stop within a 5-minute walk.'
       : `${every}${pinned ? `The white ${sv.stops.length === 1 ? 'dot is the stop' : 'dots are the stops'} within a 5-minute walk. ` : ''}Routes: ${Object.entries(byAgency).map(([a, l]) => `<b>${a}</b> ${l.join(', ')}`).join('; ')}`;
+    // until the files after the first drawing are in (loadLater), the values read "Loading…"; if they fail, "Not available"
+    const wait = M.laterIn && !M.laterFailed ? null : (M.laterFailed ? 'Not available' : 'Loading…');
+    const waitRow = (label) => `<div class="row"><div class="row-top"><span class="row-label">${label}</span>
+        <span class="row-value na">${wait}</span></div></div>`;
     return `
       <div class="card card-bg">
         <div class="card-head">
@@ -572,13 +584,13 @@
         </div>
         <div class="nb-row"><span>Jobs here, ${meta.jobs_year}</span><strong>${p.jobs == null ? 'No value' : fmt.format(p.jobs)}</strong></div>
         <div class="section-title">Jobs within 30 minutes</div>
-        ${jobsRow('By public transit', p.t, p.tp, 'No public transit value for this block group.')}
-        ${jobsRow('By car, no traffic', p.c, p.cp, 'No car value for this block group.')}
-        <div class="row"><div class="row-top"><span class="row-label">Car vs. public transit</span>
+        ${wait ? waitRow('By public transit') : jobsRow('By public transit', p.t, p.tp, 'No public transit value for this block group.')}
+        ${wait ? waitRow('By car, no traffic') : jobsRow('By car, no traffic', p.c, p.cp, 'No car value for this block group.')}
+        ${wait ? waitRow('Car vs. public transit') : `<div class="row"><div class="row-top"><span class="row-label">Car vs. public transit</span>
           ${rv ? `<span class="row-value${r !== null ? '' : ' na'}">${rv}</span>` : '<span class="row-value na">No value</span>'}</div>
-          <div class="row-note">${rn}</div></div>
+          <div class="row-note">${rn}</div></div>`}
         <div class="section-title">Buses</div>
-        <div class="nb-row"><span>Buses stopping nearby, 7 to 9 a.m.</span><strong>${sv ? fmt.format(sv.peak) : M.callsFailed ? 'Not available' : 'Loading…'}</strong></div>
+        <div class="nb-row"><span>Buses stopping nearby, 7 to 9 a.m.</span><strong>${sv ? fmt.format(sv.peak) : wait}</strong></div>
         ${where ? `<div class="sel-routes">${where}</div>` : ''}
       </div>`;
   }
@@ -708,8 +720,9 @@
     const asLeft = keep && view === 'metro' && M && M.slug === slug;   // back from the Access tab to the metro it left
     const ready = asLeft ? null : Promise.all([load(slug), loadDeck()]);
     let flight = Promise.resolve();
-    if (how === 'fly' || (how === 'switch' && !kept(rec))) flight = move(() => map.flyTo(homeOf(rec)));
-    else if (how === 'flyTo') flight = move(() => map.flyTo(camera));
+    // flights at the Access tab's speed (app.js, FLY_SPEED)
+    if (how === 'fly' || (how === 'switch' && !kept(rec))) flight = move(() => map.flyTo({ ...homeOf(rec), speed: WR.FLY_SPEED }));
+    else if (how === 'flyTo') flight = move(() => map.flyTo({ ...camera, speed: WR.FLY_SPEED }));
     else if (how === 'jump' && !kept(rec)) { quiet += 1; map.jumpTo(homeOf(rec)); quiet -= 1; }
     if (asLeft) {   // as it was: its clock, Play or Pause, boxes and selection
       reshow();
@@ -750,8 +763,9 @@
     sel = null;
     hoverG = '';
     M.HOME = homeOf(M.rec);
-    // the smallest marks are sized for the view out to a little past the whole metro
-    M.zl = Math.min(M.HOME.zoom - 0.6, map.getZoom(), 9.9);
+    // the smallest marks are sized for the view out to a little past the whole metro (its whole box, as before the
+    // metros opened on their residents)
+    M.zl = Math.min(homeOf(M.rec, M.rec.bbox).zoom - 0.6, map.getZoom(), 9.9);
     resetSettings();
     view = 'metro';
     showMetroLayers(true);
@@ -900,7 +914,7 @@
       if (!m) { setStatus('That place is outside the mapped metros.'); return; }
       setStatus('');
       if (view === 'metro' && M && m.slug === M.slug) {
-        map.flyTo({ center: [lng, lat], zoom: SEARCH_ZOOM });
+        map.flyTo({ center: [lng, lat], zoom: SEARCH_ZOOM, speed: WR.FLY_SPEED });
         map.once('moveend', () => {
           if (!active || view !== 'metro' || !M || M.slug !== m.slug) return;
           const f = map.queryRenderedFeatures(map.project([lng, lat]), { layers: ['r-bg-hit'] })[0];

@@ -28,6 +28,10 @@
   const DOTS_UNTIL = 7.3;  // zoom at which the metro circles have faded out
   const BG_FROM = 6;       // block groups fade in from this zoom and are hidden below it
   const CLICK_ZOOM = 12;   // a click on a block group zooms in to this, if the map is further out
+  // Flights between views, on both tabs: MapLibre's default speed, 1.2, took 2.2 s from the national map to Chicago
+  // once metros opened on their residents; at 2, 1.3 s (Sierra, 2026-11-18: "is the slow zoom so it has time to
+  // load?"; asked "Build all four changes on the branch?": "yes build")
+  const FLY_SPEED = 2;
   const FILTERED_OUT = '#9aa3a6';
   const QUARTERS = { 1: 'lowest-income quarter', 2: 'second quarter by income', 3: 'third quarter by income', 4: 'highest-income quarter' };
 
@@ -717,17 +721,24 @@
     }
     map.removeFeatureState({ source: 'bgs' });
     map.getSource('bgs').setData(collection(S.features));
+    S.svcStale = false;   // the map's copy now holds every value joined so far
     S.hover = null;
     S.hoverProps = null;
     S.pinned = S.pinnedProps ? (S.index.has(S.pinnedProps.g) ? S.index.get(S.pinnedProps.g) : null) : null;
-    if (S.pinned !== null) map.setFeatureState({ source: 'bgs', id: S.pinned }, { pinned: true });
+    if (S.pinned !== null) {
+      S.pinnedProps = { ...S.features[S.pinned].properties };   // with the services, when they came in later
+      map.setFeatureState({ source: 'bgs', id: S.pinned }, { pinned: true });
+    }
     if (S.pendingPin && S.index.has(S.pendingPin)) {   // the block group a shared link keeps
       const id = S.index.get(S.pendingPin);
       S.pendingPin = null;
       pin(id, S.features[id].properties);
     }
     S.cmpId = S.cmpProps && S.index.has(S.cmpProps.g) ? S.index.get(S.cmpProps.g) : null;
-    if (S.cmpId !== null) map.setFeatureState({ source: 'bgs', id: S.cmpId }, { cmp: true });
+    if (S.cmpId !== null) {
+      S.cmpProps = { ...S.features[S.cmpId].properties };
+      map.setFeatureState({ source: 'bgs', id: S.cmpId }, { cmp: true });
+    }
     if (S.pendingCmp && S.pinnedProps && S.index.has(S.pendingCmp)) {   // the second block group of a shared link
       const id = S.index.get(S.pendingCmp);
       S.pendingCmp = null;
@@ -743,8 +754,8 @@
     while (S.loaded.size > MAX_LOADED) S.loaded.delete(oldest.shift()[0]);
   }
 
-  // Joins a metro's census values (layer 2) and service values (layer 3) to its block groups.
-  function joinLayers(pr, acs, times) {
+  // Joins a metro's census values (layer 2) to its block groups.
+  function joinAcs(pr, acs) {
     // [median household income, income quarter in the metro, % of households without a car, population,
     //  people per square mile, % of people below twice the poverty line, % white, Black and Asian (not Hispanic)
     //  and Hispanic (of any race)]
@@ -754,18 +765,32 @@
         if (a.length > i && a[i] !== null) pr[key] = a[i];
       });
     }
-    // Every layer at every travel time, named by the index's fields ("j30t", "g15tp", ..., "gn"); the ratio is
-    // computed here. The boundary files' own 30-minute job values are dropped, so nothing reads them by mistake.
-    for (const x of ['t', 'c', 'r', 'tp', 'cp']) delete pr[x];
-    const v = times[pr.g];
-    if (v && S.ix) {
-      S.ix.fields.forEach((f, i) => { if (v[i] !== null) pr[f] = v[i]; });
-      S.ix.layers.forEach((L) => S.ix.taus.forEach((tau) => {
-        const t = pr[`${L.key}${tau}t`];
-        const c = pr[`${L.key}${tau}c`];
-        if (t > 0 && has(c)) pr[`${L.key}${tau}r`] = c / t;
-      }));
-    }
+  }
+  // Joins one of a metro's travel-time files (layer 4: its jobs, or its five services) to its block groups: each
+  // layer at every travel time, named by the file's own fields ("j30t", "g15tp", ..., "gn"); the ratio is computed
+  // here. Since 2026-11-18 the boundary files hold no values: both tabs read these.
+  function joinTimes(pr, file, keys) {
+    const v = file.bg[pr.g];
+    if (!v) return;
+    file.fields.forEach((f, i) => { if (v[i] !== null) pr[f] = v[i]; });
+    keys.forEach((key) => S.ix.taus.forEach((tau) => {
+      const t = pr[`${key}${tau}t`];
+      const c = pr[`${key}${tau}c`];
+      if (t > 0 && has(c)) pr[`${key}${tau}r`] = c / t;
+    }));
+  }
+  // A loaded metro's five services, joined to its block groups as they come in; the map's own copy of the block
+  // groups takes them at the next rebuild(), which a service layer asks for (setLayer). If the file fails, the
+  // services show no values for the metro.
+  function loadSvc(m, entry) {
+    const keys = S.ix.layers.map((L) => L.key).filter((key) => key !== 'j');
+    return getJSON(vurl(`data/times/${m.slug}.svc.json`))
+      .then((svc) => {
+        for (const f of entry.features) joinTimes(f.properties, svc, keys);
+        S.svcStale = true;
+      })
+      .catch((err) => { console.error(err); setStatus(`The essential services could not be loaded for ${menuName(m.name)}.`); })
+      .finally(() => { entry.svcDone = true; });
   }
 
   function loadMetro(m) {
@@ -777,16 +802,23 @@
     setStatus(`Loading ${menuName(m.name)}…`);
     // The census layer is optional: if its file fails, the map still draws the metro.
     const optional = (url) => getJSON(url).catch((err) => { console.error(err); return {}; });
+    // The map draws a metro from its boundaries, census values and jobs; its five services load right after, and a
+    // service layer waits for them (speed-up (g); Sierra, 2026-11-18: "do g and h").
     const p = Promise.all([getJSON(vurl(`data/bg/${m.slug}.json`)), optional(vurl(`data/acs/${m.slug}.json`)),
-      getJSON(vurl(`data/times/${m.slug}.json`))])
-      .then(([data, acs, times]) => {
+      getJSON(vurl(`data/times/${m.slug}.jobs.json`))])
+      .then(([data, acs, jobs]) => {
         for (const f of data.features) {
           f.properties.m = m.slug;
-          joinLayers(f.properties, acs, times);
+          joinAcs(f.properties, acs);
+          joinTimes(f.properties, jobs, ['j']);
         }
-        S.loaded.set(m.slug, { features: data.features, used: ++S.tick });
+        const entry = { features: data.features, used: ++S.tick, svcDone: false };
+        S.loaded.set(m.slug, entry);
         evict();
+        entry.svc = loadSvc(m, entry);
+        if (!isJobs()) return entry.svc.then(() => { if (S.loaded.get(m.slug) === entry) rebuild(); });
         rebuild();
+        return undefined;
       })
       .catch((err) => { console.error(err); setStatus(`${menuName(m.name)} could not be loaded.`); })
       .finally(() => {
@@ -857,13 +889,37 @@
     return best;
   }
 
+  // The box a metro opens on: where the middle 90% of its residents live ("home", build_layer1b.py), with 5% more on
+  // each side, so a job centre at its edge is on screen (San Jose's downtown Palo Alto, its densest job block group,
+  // had been 200 m past the top edge; Sierra, 2026-11-18, asked "Add the 5% margin, then push?": "Yes, then push");
+  // for a metro without one, the box around every block group
+  function homeBox(m) {
+    const b = m.home;
+    if (!b) return m.bbox;
+    const dx = (b[2] - b[0]) * 0.05, dy = (b[3] - b[1]) * 0.05;
+    return [b[0] - dx, b[1] - dy, b[2] + dx, b[3] + dy];
+  }
   function goToMetro(m) {
     showMetro();
-    const cam = map.cameraForBounds([[m.bbox[0], m.bbox[1]], [m.bbox[2], m.bbox[3]]], { padding: 40, maxZoom: 11 });
-    // A metro spread over a large area (Anchorage) would fit below the zoom at which block groups load,
-    // so it opens on its block groups' mean location instead.
-    if (!cam || cam.zoom < LOAD_ZOOM + 0.5) map.flyTo({ center: m.center, zoom: LOAD_ZOOM + 1 });
-    else map.flyTo(cam);
+    // A metro opens on where the middle 90% of its residents live ("home", build_layer1b.py), not the box around every
+    // block group, whose outer counties filled most of the view; they are still drawn, a zoom out or a pan away
+    // (Sierra, 2026-11-18: "i wonder if each city shows too much of its outer suburbs"; asked "Should each metro open
+    // framed on where most of its residents live?": "Yes, build it").
+    const b = homeBox(m);
+    const cam = map.cameraForBounds([[b[0], b[1]], [b[2], b[3]]], { padding: 40, maxZoom: 11 });
+    prefetchMetro(m);
+    // A metro spread over a large area would fit below the zoom at which block groups load, so it opens on its
+    // block groups' mean location instead (Anchorage did, before metros opened on their residents).
+    if (!cam || cam.zoom < LOAD_ZOOM + 0.5) map.flyTo({ center: m.center, zoom: LOAD_ZOOM + 1, speed: FLY_SPEED });
+    else map.flyTo({ ...cam, speed: FLY_SPEED });
+  }
+  // A metro's files start downloading at the start of the flight to it, so they are in the browser's cache, or on
+  // their way, when the flight lands and loadMetro asks for them; the routes tab's files already load during its
+  // flights (2026-11-18). Only the files of the first drawing; the services follow it, as before.
+  function prefetchMetro(m) {
+    if (S.loaded.has(m.slug) || S.pending.has(m.slug)) return;
+    [`data/bg/${m.slug}.json`, `data/acs/${m.slug}.json`, `data/times/${m.slug}.jobs.json`]
+      .forEach((u) => fetch(vurl(u)).then((r) => r.arrayBuffer()).catch(() => {}));
   }
 
   // ---------- panel controls ----------
@@ -904,9 +960,25 @@
       (noCar.length ? ` ${andList(noCar)} ${noCar.length === 1 ? 'has' : 'have'} no car travel times.` : '');
   }
 
-  // The layer toggle at the top: jobs or one of the essential services.
+  // The layer toggle at the top: jobs or one of the essential services. A service waits for the loaded metros'
+  // services files (loadSvc), then for the map's copy of the block groups to take them (rebuild).
+  let layerTurn = 0;
   function setLayer(key) {
     if (!S.ix) return;
+    const turn = ++layerTurn;
+    if (key !== 'j') {
+      const waiting = [...S.loaded.values()].filter((e) => !e.svcDone);
+      if (waiting.length) {
+        setStatus(`Loading ${(S.layers.find((L) => L.key === key) || JOBS).noun}…`);
+        Promise.all(waiting.map((e) => e.svc)).then(() => {
+          if (turn !== layerTurn) return;   // another layer was chosen in the wait
+          if ($('#status').textContent.startsWith('Loading')) setStatus('');
+          setLayer(key);
+        });
+        return;
+      }
+      if (S.svcStale) rebuild();
+    }
     S.layer = key;
     document.querySelectorAll('[data-layer]').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.layer === key)));
     if (key !== 'j' && S.scale === 'view') { S.scale = 'shared'; S.viewBreaks = null; }
@@ -1020,8 +1092,9 @@
     });
   });
   // ... except on the Routes and buses tab (routes.html), and at the address the Access tab takes after a switch from
-  // that tab (?from=routes)
-  if (S.tab === 'access' && !/from=routes/.test(location.search)) welcome.showModal();
+  // that tab (?from=routes); the main address opens it over the routes tab (index.html, the script after the tabs;
+  // 2026-11-18)
+  if ((S.tab === 'access' && !/from=routes/.test(location.search)) || document.body.dataset.landing === 'main') welcome.showModal();
   $('#about-routes-open').addEventListener('click', () => $('#about-routes').showModal());
 
   $('#search').addEventListener('submit', async (e) => {
@@ -1040,15 +1113,15 @@
       const lng = Number(hits[0].lon);
       const lat = Number(hits[0].lat);
       const m = metroAt(lng, lat);
-      if (!m) { setStatus('That place is outside the mapped metros.'); map.flyTo({ center: [lng, lat], zoom: 8 }); return; }
+      if (!m) { setStatus('That place is outside the mapped metros.'); map.flyTo({ center: [lng, lat], zoom: 8, speed: FLY_SPEED }); return; }
       if (!m.mapped) {
         setStatus(`${menuName(m.name)} is not on the map. Its latest usable public transit schedules are from ${m.latest_usable_year}.`);
-        map.flyTo({ center: [lng, lat], zoom: 10 });
+        map.flyTo({ center: [lng, lat], zoom: 10, speed: FLY_SPEED });
         return;
       }
       setStatus('');
       await loadMetro(m);
-      map.flyTo({ center: [lng, lat], zoom: 13.5 });
+      map.flyTo({ center: [lng, lat], zoom: 13.5, speed: FLY_SPEED });
       map.once('idle', () => {
         const fs = map.queryRenderedFeatures(map.project([lng, lat]), { layers: ['bg-fill'] });
         if (fs.length) choose(fs[0].id, fs[0].properties);
@@ -1448,7 +1521,7 @@
   });
 
   // what routes.js uses of this page
-  window.WR = { map, styleReady, metaReady, routesIndexReady, getJSON, vurl, viewParam, hereURL };
+  window.WR = { map, styleReady, metaReady, routesIndexReady, getJSON, vurl, viewParam, hereURL, FLY_SPEED, homeBox };
 
   markTab();
   if (S.tab === 'access') startAccess();

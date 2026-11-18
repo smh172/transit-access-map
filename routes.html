@@ -6,7 +6,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Within Reach: Routes, Buses and Jobs</title>
   <meta name="description" content="Public transit routes and the buses on their morning schedules, over the jobs per square mile, in 84 U.S. metropolitan areas. By Sierra Arnold, Xavier University.">
-  <!-- the preview shown when the link is shared (Sierra, 2026-11-12, "yes 1-4 sound good") -->
+  <!-- the preview shown when the link is shared (Sierra, 2026-11-12, "yes 1-4 sound good"); since 2026-11-18 the
+       routes picture, as at routes.html, since the main address opens on the routes tab and every address of this
+       page shares one preview (Sierra, asked which picture it should show: "whatever you think is best") -->
   <meta property="og:type" content="website">
   <meta property="og:title" content="Within Reach: Routes, Buses and Jobs">
   <meta property="og:description" content="Public transit routes and the buses on their morning schedules, over the jobs per square mile, in 84 U.S. metropolitan areas. By Sierra Arnold, Xavier University.">
@@ -18,32 +20,61 @@
   <meta name="twitter:card" content="summary_large_image">
   <!-- each data folder's version, from its files' contents (publish/stamp_versions.py): every data file the page
        fetches carries its folder's version, so a page and its data change together -->
-  <meta name="data-versions" content="metros=2960350e10,bg=e1c49896af,acs=4d6885d466,times=ce72a3250f,routes=33c26b095e">
+  <meta name="data-versions" content="metros=def54619d4,bg=6e3c4b4f0b,acs=4d6885d466,times=2b8076eb3c,routes=33c26b095e">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
   <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
-  <link href="style.css?v=522264a39c" rel="stylesheet">
-  <link rel="preload" href="routes.js?v=6ea5d98ddb" as="script">
+  <link href="style.css?v=86548f794e" rel="stylesheet">
+  <link rel="preload" href="routes.js?v=ca077eb233" as="script">
 </head>
-<!-- One page for the two tabs, Access and Routes and buses, on one map and one panel: a tab swaps the panel's contents
-     and the map's layers without reloading (Sierra, 2026-11-17: "it would be cool if it doesnt totally relod when you
-     toggle between the two map types"; asked "Build the one-page version as proposed?": "Yes, build it"). data-tab is
-     the tab the page opens on; routes.html is this page opening on the Routes and buses tab, written from this file by
-     publish/make_routes_page.py. The routes tab's script, routes.js, loads on the first visit to that tab. -->
-<body data-tab="routes" data-routes="routes.js?v=6ea5d98ddb">
+<!-- One page for the two tabs, Routes and buses and Jobs and essential services, on one map and one panel: a tab swaps
+     the panel's contents and the map's layers without reloading (Sierra, 2026-11-17: "it would be cool if it doesnt
+     totally relod when you toggle between the two map types"; asked "Build the one-page version as proposed?": "Yes,
+     build it"). data-tab is the tab the page opens on; routes.html is this page opening on the Routes and buses tab,
+     written from this file by publish/make_routes_page.py, and the main address opens on that tab too (the script
+     after the tabs). The routes tab's script, routes.js, loads on the first visit to that tab. -->
+<body data-tab="routes" data-routes="routes.js?v=ca077eb233">
   <div id="app">
     <aside id="panel" aria-label="Metro and details">
       <header class="brand">
         <h1>Within Reach</h1>
-        <p class="tagline">Access to jobs and essential services by public transit and car</p>
+        <!-- naming both tabs (Sierra, 2026-11-18: "maybe the subtitle on the welcome page needs to be made more
+             general"; asked "Build all four changes on the branch?": "yes build"); the page's title and the
+             citation keep the site's name -->
+        <p class="tagline">Public transit routes and access to jobs and essential services</p>
         <p class="byline">Sierra Arnold, Xavier University</p>
         <!-- the switch between the tabs (Sierra, 2026-11-17, shown the prototype: "I like that."; "can we exapnd to
-             all cities") -->
+             all cities"); Routes and buses first, and the other tab named for what it counts (2026-11-18: "can we
+             make the routes and busses the default/first tab", "and maybe the access tab should say jobs and
+             essential services"; asked "Build the Routes-first tab order and the new tab name on this branch before
+             merging?": "Yes, build it") -->
         <nav class="views" aria-label="Views">
-          <a class="view" data-tab-link="access" href="index.html?from=routes">Access</a>
           <a class="view on" data-tab-link="routes" aria-current="page">Routes and buses</a>
+          <a class="view" data-tab-link="access" href="index.html?from=routes">Jobs and essential services</a>
         </nav>
+        <!-- The main address, with no view, block group or setting in it, opens on the Routes and buses tab, with
+             the welcome window (app.js), and becomes routes.html, the routes tab's own address, so the view the map
+             writes into it reopens that tab. Every other address of this page opens on the Jobs and essential
+             services tab, as before. It runs here, before the page is drawn, so the page opens on its tab. -->
+        <script>
+          (function () {
+            var b = document.body;
+            if (b.dataset.tab !== 'access' || location.hash.length > 1 || /from=routes/.test(location.search)) return;
+            b.dataset.tab = 'routes';
+            b.dataset.landing = 'main';
+            history.replaceState(null, '', 'routes.html' + location.search);
+            document.querySelectorAll('[data-tab-link]').forEach(function (a) {
+              var on = a.dataset.tabLink === 'routes';
+              a.classList.toggle('on', on);
+              if (on) { a.setAttribute('aria-current', 'page'); a.removeAttribute('href'); }
+              else { a.removeAttribute('aria-current'); a.setAttribute('href', 'index.html?from=routes'); }
+            });
+            var l = document.createElement('link');   // the routes tab's script, wanted at once, as at routes.html
+            l.rel = 'preload'; l.as = 'script'; l.href = b.dataset.routes;
+            document.head.appendChild(l);
+          })();
+        </script>
       </header>
 
       <div class="panel-body">
@@ -70,7 +101,7 @@
                level, back to the whole metro while a block group is selected; then the metro's note, if it has one -->
           <button id="r-back" type="button" class="back" hidden>&lsaquo; Back to the national map</button>
           <div id="r-note" class="note" hidden></div>
-          <div id="r-clickhint" class="callout"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 2.5l14.5 8.2-6.3 1.7-2.6 6.4z" fill="#115697" stroke="#fff" stroke-width="1.2" stroke-linejoin="round"/></svg>
+          <div id="r-clickhint" class="callout"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 2.5l14.5 8.2-6.3 1.7-2.6 6.4z" fill="currentColor" stroke="#fff" stroke-width="1.2" stroke-linejoin="round"/></svg>
             <span id="r-clickhint-text"><strong>Select a block group</strong> to see its nearby buses and the jobs it can reach.</span></div>
           <div id="r-sel" aria-live="polite"></div>
           <div class="key" id="r-key"></div>
@@ -89,6 +120,7 @@
     <div id="stage">
       <div id="map" role="region" aria-label="Map of public transit routes, buses and jobs"></div>
       <div id="r-loading" class="for-routes">Loading the schedules...</div>
+      <script>if (document.body.dataset.landing) document.getElementById('r-loading').hidden = false;</script>
       <div id="legend" aria-label="Legend"></div>
       <section id="controls" aria-labelledby="controls-title">
         <div class="controls-head">
@@ -203,16 +235,24 @@
   <dialog id="welcome" class="sheet" aria-labelledby="welcome-title">
     <div class="sheet-head">
       <h2 id="welcome-title">Within Reach</h2>
-      <p class="sheet-tagline">Access to jobs and essential services by public transit and car</p>
+      <p class="sheet-tagline">Public transit routes and access to jobs and essential services</p>
       <p class="sheet-sub">Sierra Arnold, Xavier University</p>
     </div>
     <div class="sheet-body">
+      <!-- what the map is for, then the two tabs in their order as points (Sierra, 2026-11-18: "this needs to be
+           reorganized", her draft of the second sentence, and "that is bad writing but something like that / with
+           maybe bullet points about the two tabs"; "i think say like interactive mapping tool or something like
+           that"); the routes tab's sentence since 2026-11-17 ("Yes, 1 to 4") -->
       <p>Households without a car are largely limited to the jobs and services they can reach by public transit.
-        This map counts the jobs, grocery stores, banks, hospitals, libraries and community colleges within reach of
-        each neighborhood (a Census block group), by public transit and by car.</p>
-      <!-- the second tab (Sierra, 2026-11-17, on mentioning it here and in the About window: "Yes, 1 to 4") -->
-      <p>The Routes and buses tab shows each metro's public transit routes, with its buses and trains moving on their
-        morning schedules over where the jobs are.</p>
+        This interactive mapping tool shows the public transit where you live, and how many jobs and which services
+        the residents of each neighborhood can reach.</p>
+      <ul class="welcome-tabs">
+        <li>The Routes and buses tab shows each metro's public transit routes, with its buses and trains moving on
+          their morning schedules over where the jobs are.</li>
+        <li>The Jobs and essential services tab counts the jobs, grocery stores, banks, hospitals, libraries and
+          community colleges within reach of each neighborhood (a Census block group), by public transit and by
+          car.</li>
+      </ul>
       <h3>Related papers</h3>
       <ul class="welcome-papers">
         <li><a href="https://github.com/smh172/evolution-transit-access/blob/main/evolution_transit_access.pdf" target="_blank" rel="noopener">The Evolution of Transit Access to Jobs in American Cities</a> <span>(draft)</span></li>
@@ -290,6 +330,6 @@
   </dialog>
 
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-  <script src="app.js?v=01aca6852a"></script>
+  <script src="app.js?v=1006c5cc04"></script>
 </body>
 </html>
