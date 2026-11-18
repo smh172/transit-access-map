@@ -3,7 +3,11 @@
    Layer 2: block-group characteristics for the filters and the card (data/acs/<metro>.json; build_layer2_acs.py).
    Layer 4: jobs and the essential services reachable by each mode within 15, 30, 45 or 60 minutes, chosen with
    the slider (data/times/index.json, data/times/<metro>.json; build_layer4_times.py). It replaced, for the page,
-   the 30-minute jobs values of layer 1 and the 45-minute service values of layer 3 (data/svc/). */
+   the 30-minute jobs values of layer 1 and the 45-minute service values of layer 3 (data/svc/).
+   Since 2026-11-17 the page holds both tabs on one map and one panel: Access (this file) and Routes and buses
+   (routes.js, loaded on the first visit to that tab). A tab swaps the panel's contents and the map's layers without
+   reloading (Sierra: "it would be cool if it doesnt totally relod when you toggle between the two map types"; asked
+   "Build the one-page version as proposed?": "Yes, build it"). The switch, the address and Back are at the end. */
 (() => {
   'use strict';
 
@@ -39,6 +43,7 @@
     hover: null, hoverProps: null, pinned: null, pinnedProps: null, hoverMetro: null,
     hold: null, onMap: false, filter: { iq: 0, zv: 0, mj: 0, lo: 0 },
     cmpId: null, cmpProps: null, picking: false, pendingPin: null, pendingCmp: null,   // comparing two block groups
+    tab: document.body.dataset.tab === 'routes' ? 'routes' : 'access',   // the tab shown (routes.html opens on routes)
   };
 
   const $ = (sel) => document.querySelector(sel);
@@ -74,6 +79,18 @@
     const res = await fetch(url);
     if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
     return res.json();
+  }
+
+  // Each data folder's version, from the page (publish/stamp_versions.py): a data file's address carries it, so a
+  // browser holding a file from an earlier build fetches the new one (2026-11-17: a fresh routes page had read a
+  // cached data/routes/index.json from before its circles' colors, so they all showed one green).
+  const V = {};
+  const vmeta = document.querySelector('meta[name="data-versions"]');
+  if (vmeta) vmeta.content.split(',').forEach((kv) => { const [key, val] = kv.trim().split('='); if (key && val) V[key] = val; });
+  function vurl(path) {   // "data/bg/chicago-il.json" -> "data/bg/chicago-il.json?v=<the bg folder's version>"
+    const m = path.match(/^data\/(?:([a-z]+)\/|([a-z]+)\.json$)/);
+    const key = m && (m[1] || m[2]);
+    return key && V[key] ? `${path}?v=${V[key]}` : path;
   }
 
   // ---------- what each view shows ----------
@@ -216,7 +233,7 @@
   }
   const HASH_ORDER = ['view', 'layer', 'mode', 'time', 'colors', 'income', 'car', 'race', 'poverty', 'bg', 'vs'];
   function writeHash() {
-    if (!S.ix) return;
+    if (!S.ix || S.tab !== 'access') return;   // the routes tab keeps its own address
     const h = readHash();
     const set = (key, val, def) => { if (val === def || val === null || val === undefined) delete h[key]; else h[key] = String(val); };
     set('layer', S.layer, 'j');
@@ -279,7 +296,7 @@
 
   // ---------- legend ----------
   function renderLegend() {
-    if (!S.meta || !S.ix) return;
+    if (!S.meta || !S.ix || S.tab !== 'access') return;   // the routes tab draws its own legend in the same place
     const L = lay();
     const jobs = isJobs();
     const label = S.mode === 'r' ? (v) => `${compact(v)}&times;` : (jobs ? compact : (v) => fmt.format(v));
@@ -608,6 +625,7 @@
   }
 
   function renderCard() {
+    if (S.tab !== 'access') return;   // drawn again on the way back to the tab
     if (S.pinnedProps && S.cmpProps) { $('#card').innerHTML = compareHTML(S.pinnedProps, S.cmpProps); return; }
     const p = S.hoverProps || S.pinnedProps;
     // over the kept block group itself, the card stays the kept one (with its buttons)
@@ -635,6 +653,7 @@
     const el = document.createElement('div');
     el.className = 'ab-tag';
     el.textContent = letter;
+    if (S.tab !== 'access') el.style.display = 'none';   // a metro that finished loading after the switch
     tags[letter] = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(centerOf(f.geometry)).addTo(map);
   }
   function setCompare(id, props) {
@@ -758,7 +777,8 @@
     setStatus(`Loading ${menuName(m.name)}…`);
     // The census layer is optional: if its file fails, the map still draws the metro.
     const optional = (url) => getJSON(url).catch((err) => { console.error(err); return {}; });
-    const p = Promise.all([getJSON(`data/bg/${m.slug}.json`), optional(`data/acs/${m.slug}.json`), getJSON(`data/times/${m.slug}.json`)])
+    const p = Promise.all([getJSON(vurl(`data/bg/${m.slug}.json`)), optional(vurl(`data/acs/${m.slug}.json`)),
+      getJSON(vurl(`data/times/${m.slug}.json`))])
       .then(([data, acs, times]) => {
         for (const f of data.features) {
           f.properties.m = m.slug;
@@ -779,7 +799,7 @@
   }
 
   function ensureMetros() {
-    if (!S.meta || map.getZoom() < LOAD_ZOOM) return;
+    if (!S.meta || S.tab !== 'access' || map.getZoom() < LOAD_ZOOM) return;
     const b = map.getBounds();
     const view = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
     const c = map.getCenter();
@@ -861,12 +881,15 @@
       sel.appendChild(o);
     }
     sel.addEventListener('change', () => {
+      // one menu for both tabs: the two pages' menus listed the same 84 metros under the same names (2026-11-17)
+      if (S.tab === 'routes') { const v = sel.value; loadRoutes().then((R) => R.choose(v), () => {}); return; }
       const m = S.bySlug.get(sel.value);
       if (m) goToMetro(m);
     });
   }
 
   function syncMetroSelect() {
+    if (S.tab !== 'access') return;   // the routes tab sets the menu itself
     const m = metroAtCenter();
     $('#metro').value = m && m.mapped ? m.slug : '';
   }
@@ -996,22 +1019,16 @@
       pressed = false;
     });
   });
-  // ... except when the page is opened from the routes page's "Access" tab (?from=routes)
-  if (!/from=routes/.test(location.search)) welcome.showModal();
-
-  // The "Routes and buses" tab opens the routes page on the metro in view, at the same view (Sierra, 2026-11-17)
-  // ... and the kept block group, in its own metro (Sierra, 2026-11-17, on keeping the selection across the tabs:
-  // "Yes, 1 to 4")
-  $('#to-routes').addEventListener('click', (e) => {
-    const v = (location.hash.match(/view=[^&]+/) || [''])[0];
-    const m = (S.pinnedProps && S.pinnedProps.m) || $('#metro').value;
-    const parts = [v, S.pinnedProps ? `bg=${S.pinnedProps.g}` : ''].filter(Boolean);
-    e.currentTarget.href = `routes.html${m ? `?metro=${m}` : ''}${parts.length ? `#${parts.join('&')}` : ''}`;
-  });
+  // ... except on the Routes and buses tab (routes.html), and at the address the Access tab takes after a switch from
+  // that tab (?from=routes)
+  if (S.tab === 'access' && !/from=routes/.test(location.search)) welcome.showModal();
+  $('#about-routes-open').addEventListener('click', () => $('#about-routes').showModal());
 
   $('#search').addEventListener('submit', async (e) => {
     e.preventDefault();
     const q = $('#q').value.trim();
+    // one search box for both tabs: on the routes tab, routes.js answers it
+    if (S.tab === 'routes') { if (q) loadRoutes().then((R) => R.search(q), () => {}); return; }
     if (!q || !S.meta) return;
     setStatus('Searching…');
     try {
@@ -1054,55 +1071,72 @@
   map.getCanvasContainer().addEventListener('mouseleave', () => { S.onMap = false; });
   // The map options take the top right, so the zoom buttons sit at the bottom right, above the credits (a
   // bottom control added later goes above one added earlier).
+  // The credit names the tab's own data, "Access data" or "Routes data", as the two pages did.
   map.addControl(new maplibregl.AttributionControl({
     compact: true,
-    customAttribution: 'Access data: S. Arnold. Schedules include <a href="https://www.transit.land/terms" target="_blank" rel="noopener">Transitland</a> data.',
+    customAttribution: '<span class="for-access">Access</span><span class="for-routes">Routes</span> data: S. Arnold. Schedules include <a href="https://www.transit.land/terms" target="_blank" rel="noopener">Transitland</a> data.',
   }), 'bottom-right');
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
   map.on('error', (e) => console.warn(e && e.error ? e.error.message : e));
+  // Both tabs' layers go on as soon as the map's style is in, not after every street tile: the routes tab's national
+  // circles since the one page (2026-11-17: waiting for the tiles took 2.3 s live), the Access tab's layers and metros
+  // since 2026-11-18 (Sierra, asked "Build speed-ups (a) and (b) next?": "Yes, a and b").
+  const styleReady = new Promise((res) => map.once('style.load', res));
 
   // The metro list and the travel-time index load alongside the basemap, so the menu and the About text fill in early.
-  const metaReady = getJSON('data/metros.json').then((meta) => {
+  const metaReady = getJSON(vurl('data/metros.json')).then((meta) => {
     S.meta = meta;
     meta.metros.forEach((m) => S.bySlug.set(m.slug, m));
     fillMetroSelect();
     fillCoverage();
     return meta;
   });
-  // Every layer's values come from this index and the metro files it describes, so the map waits for it.
-  const ixReady = getJSON('data/times/index.json').then((ix) => {
+  // Every layer's values come from this index and the metro files it describes, so the map waits for it. It loads with
+  // the Access tab: at once at this page's own address, on the first visit to the tab from routes.html.
+  let ixReady = null;
+  const loadIndex = () => ixReady || (ixReady = getJSON(vurl('data/times/index.json')).then((ix) => {
     S.ix = ix;
     S.tau = ix.tau_default;
     S.layers = ix.layers;
     document.querySelectorAll('[data-layer]').forEach((b) => { b.disabled = false; });
     applyHash();
     setTauControl();
-  });
-  // The six metros whose schedule files leave out their main public transit or run none: the routes index carries the
-  // map page's wording (Sierra, 2026-11-17, asked "Add the six gap notes to the Access page?": "Yes, add notes").
-  getJSON('data/routes/index.json').then((rx) => {
+  }));
+  // The routes index: the routes tab's metros, and the six metros whose schedule files leave out their main public
+  // transit or run none, with the map page's wording (Sierra, 2026-11-17, asked "Add the six gap notes to the Access
+  // page?": "Yes, add notes").
+  const routesIndexReady = getJSON(vurl('data/routes/index.json'));
+  routesIndexReady.then((rx) => {
     S.notes = new Map(rx.filter((x) => x.access_note).map((x) => [x.slug, x.access_note]));
     renderCard();
   }).catch((err) => console.warn(err));
 
-  map.on('load', async () => {
-    try {
-      await metaReady;
-      await ixReady;
-    } catch (err) {
-      console.error(err);
-      setStatus('The map data could not be loaded.');
-      return;
+  // ---------- the Access tab's layers and pointer handlers, once the map's style, the metro list and the index are in ----------
+  let accessReady = null;
+  function startAccess() {
+    if (!accessReady) {
+      accessReady = Promise.all([metaReady, loadIndex(), styleReady]).then(setupAccessMap, (err) => {
+        console.error(err);
+        setStatus('The map data could not be loaded.');
+      });
     }
+    return accessReady;
+  }
+  const ACCESS_LAYERS = ['bg-fill', 'bg-edge', 'bg-focus', 'metro-dots'];
+  const accessShown = () => ({ visibility: S.tab === 'access' ? 'visible' : 'none' });
+  let popup = null;      // the label of a national circle under the pointer
+  let tip = null;        // the label at the pointer over a block group
+  let national = true;   // the map shows the national circles (below LOAD_ZOOM), so the legend shows their steps
 
+  function setupAccessMap() {
     const firstSymbol = (map.getStyle().layers.find((l) => l.type === 'symbol') || {}).id;
     map.addSource('bgs', { type: 'geojson', data: collection([]) });
-    map.addLayer({ id: 'bg-fill', type: 'fill', source: 'bgs', minzoom: BG_FROM,
+    map.addLayer({ id: 'bg-fill', type: 'fill', source: 'bgs', minzoom: BG_FROM, layout: accessShown(),
       paint: { 'fill-color': fillColor(), 'fill-opacity': fillOpacity() } }, firstSymbol);
-    map.addLayer({ id: 'bg-edge', type: 'line', source: 'bgs', minzoom: BG_FROM,
+    map.addLayer({ id: 'bg-edge', type: 'line', source: 'bgs', minzoom: BG_FROM, layout: accessShown(),
       paint: { 'line-color': '#ffffff', 'line-opacity': 0.6,
         'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0, 11, 0.35, 14, 0.9] } }, firstSymbol);
-    map.addLayer({ id: 'bg-focus', type: 'line', source: 'bgs', minzoom: BG_FROM,
+    map.addLayer({ id: 'bg-focus', type: 'line', source: 'bgs', minzoom: BG_FROM, layout: accessShown(),
       paint: { 'line-color': '#141418',
         'line-width': ['case', ['boolean', ['feature-state', 'hover'], false], 2.5,
           ['boolean', ['feature-state', 'pinned'], false], 2.5,
@@ -1110,7 +1144,7 @@
 
     // One circle per mapped metro, colored by its median block group; metros not on the map get none.
     map.addSource('metros', { type: 'geojson', data: dotData() });
-    map.addLayer({ id: 'metro-dots', type: 'circle', source: 'metros', maxzoom: DOTS_UNTIL,
+    map.addLayer({ id: 'metro-dots', type: 'circle', source: 'metros', maxzoom: DOTS_UNTIL, layout: accessShown(),
       paint: {
         'circle-radius': ['interpolate', ['linear'], ['zoom'],
           3, ['+', 3, ['*', 6, ['get', 'size']]], 7, ['+', 5, ['*', 10, ['get', 'size']]]],
@@ -1121,7 +1155,7 @@
         'circle-stroke-opacity': ['interpolate', ['linear'], ['zoom'], 6.5, 1, DOTS_UNTIL, 0],
       } });
 
-    const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 10 });
+    popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 10 });
     // A pointer on or near a circle (dotAt) shows its label and the metro as a whole; a click flies to the metro.
     let onDot = false;
     const leaveDot = () => {
@@ -1133,6 +1167,7 @@
       renderCard();
     };
     map.on('mousemove', (e) => {
+      if (S.tab !== 'access') return;
       const m = dotAt(e.point);
       if (!m) { leaveDot(); return; }
       onDot = true;
@@ -1144,6 +1179,7 @@
     });
     map.on('mouseout', leaveDot);
     map.on('click', (e) => {
+      if (S.tab !== 'access') return;
       const m = dotAt(e.point);
       if (!m) return;
       onDot = false;
@@ -1153,7 +1189,7 @@
     });
 
     // A small label at the pointer with the block group's value (Sierra, 2026-11-12).
-    const tip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 14, className: 'bg-tip',
+    tip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 14, className: 'bg-tip',
       maxWidth: '280px' });
     const tipText = (p) => {
       const L = lay();
@@ -1208,14 +1244,15 @@
     });
 
     // The A and B tags hide with the block groups when the map is zoomed out.
-    let national = map.getZoom() < LOAD_ZOOM;
+    national = map.getZoom() < LOAD_ZOOM;
     map.on('zoom', () => {
-      const show = map.getZoom() >= BG_FROM;
-      Object.values(tags).forEach((t) => { if (t) t.getElement().style.display = show ? '' : 'none'; });
+      if (S.tab !== 'access') return;
+      showTags();
       // the legend follows what shows: the circles' steps below LOAD_ZOOM, the block groups' above
       if ((map.getZoom() < LOAD_ZOOM) !== national) { national = !national; renderLegend(); }
     });
     map.on('moveend', () => {
+      if (S.tab !== 'access') return;
       ensureMetros();
       syncMetroSelect();
       if (!S.hoverProps && !S.pinnedProps) renderCard();
@@ -1226,5 +1263,194 @@
     renderCard();
     ensureMetros();
     syncMetroSelect();
+  }
+  function showTags() {
+    const show = S.tab === 'access' && map.getZoom() >= BG_FROM;
+    Object.values(tags).forEach((t) => { if (t) t.getElement().style.display = show ? '' : 'none'; });
+  }
+
+  // ---------- the two tabs on one page (2026-11-17) ----------
+  // The page's parts follow body[data-tab] (style.css: .for-access, .for-routes). A switch keeps both tabs' settings;
+  // the address keeps the two pages' own forms, index.html#view=..&layer=.. and routes.html?metro=..#view=..&bg=.., so
+  // a link copied from either tab opens that tab, with its own link preview; Back and Forward return to the previous
+  // tab or routes view without a reload.
+  const ACCESS_TITLE = 'Within Reach: Access to Jobs and Essential Services by Public Transit and Car';
+  const ROUTES_TITLE = 'Within Reach: Routes, Buses and Jobs';
+  const MAP_LABEL = { access: 'Map of block groups', routes: 'Map of public transit routes, buses and jobs' };
+  const PANEL_LABEL = { access: 'Search and details', routes: 'Metro and details' };
+  const tabLinks = [...document.querySelectorAll('[data-tab-link]')];
+
+  // the map's position as MapLibre writes it in the address ("view=10.45/41.87/-87.79")
+  function viewParam() {
+    const c = map.getCenter();
+    const zoom = Math.round(map.getZoom() * 100) / 100;
+    const m = Math.pow(10, Math.ceil((zoom * Math.LN2 + Math.log(512 / 360 / 0.5)) / Math.LN10));
+    return `view=${zoom}/${Math.round(c.lat * m) / m}/${Math.round(c.lng * m) / m}`;
+  }
+  function parseView(hash) {
+    const v = hash.match(/view=([\d.]+)\/(-?[\d.]+)\/(-?[\d.]+)/);
+    return v ? { center: [+v[3], +v[2]], zoom: +v[1] } : null;
+  }
+  // the current address with the map's own view, which MapLibre writes there up to 0.3 s after a move
+  function hereURL() {
+    const rest = location.hash.replace(/^#/, '').split('&').filter((x) => x && !x.startsWith('view='));
+    return `${location.pathname}${location.search}#${[viewParam(), ...rest].join('&')}`;
+  }
+
+  function markTab() {
+    document.body.dataset.tab = S.tab;
+    tabLinks.forEach((a) => {
+      const on = a.dataset.tabLink === S.tab;
+      a.classList.toggle('on', on);
+      if (on) { a.setAttribute('aria-current', 'page'); a.removeAttribute('href'); return; }
+      a.removeAttribute('aria-current');
+      a.setAttribute('href', a.dataset.tabLink === 'routes' ? 'routes.html' : 'index.html?from=routes');
+    });
+    $('#map').setAttribute('aria-label', MAP_LABEL[S.tab]);
+    $('#panel').setAttribute('aria-label', PANEL_LABEL[S.tab]);
+  }
+
+  // The routes tab's address for the Access view: the metro in view, or the kept block group's own metro, at the same
+  // view, with the kept block group (Sierra, 2026-11-17; on keeping the selection across the tabs: "Yes, 1 to 4").
+  const routesMetro = () => (S.pinnedProps && S.pinnedProps.m) || $('#metro').value;
+  function routesHref() {
+    const m = routesMetro();
+    const parts = [viewParam(), S.pinnedProps ? `bg=${S.pinnedProps.g}` : ''].filter(Boolean);
+    return `routes.html${m ? `?metro=${m}` : ''}#${parts.join('&')}`;
+  }
+  // The Access tab's address for the routes view: the same view and the selected block group. ?from=routes keeps the
+  // welcome window closed if the page is reloaded there.
+  function accessHref() {
+    const bg = WR.routes ? WR.routes.state().bg : (location.hash.match(/(?:^#|&)bg=(\d{12})/) || [])[1];
+    return `index.html?from=routes#${[viewParam(), bg ? `bg=${bg}` : ''].filter(Boolean).join('&')}`;
+  }
+
+  // routes.js, loaded once: when the pointer rests on the routes tab, on the first switch, or at once at routes.html
+  let routesReady = null;
+  function loadRoutes() {
+    if (!routesReady) {
+      routesReady = new Promise((res, rej) => {
+        const s = document.createElement('script');
+        s.src = document.body.dataset.routes;
+        s.onload = () => (WR.routes ? res(WR.routes) : rej(new Error(`${s.src} did not start`)));
+        s.onerror = () => rej(new Error(`${s.src} could not be loaded`));
+        document.head.appendChild(s);
+      });
+      routesReady.catch((err) => {
+        console.error(err);
+        routesReady = null;   // tried again on the next visit to the tab
+        $('#r-loading').textContent = 'The routes could not be loaded.';
+        $('#r-loading').hidden = false;
+      });
+    }
+    return routesReady;
+  }
+
+  function leaveAccess() {   // the tab's marks leave the map with it; its settings stay for the way back
+    clearHover();
+    S.hoverMetro = null;
+    S.hold = null;
+    if (popup) popup.remove();
+    if (tip) tip.remove();
+    map.getCanvas().style.cursor = '';
+    Object.values(tags).forEach((t) => { if (t) t.getElement().style.display = 'none'; });
+    ACCESS_LAYERS.forEach((id) => { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none'); });
+    setStatus('');
+  }
+
+  // The block group selected on the other tab becomes the kept one here (a link between the pages carried it the same
+  // way); the comparison stays while its first block group does.
+  function applySelection(bg, vs) {
+    const pin0 = S.pinnedProps ? S.pinnedProps.g : S.pendingPin;
+    const cmp0 = S.cmpProps ? S.cmpProps.g : S.pendingCmp;
+    if ((bg || null) === (pin0 || null) && (vs || null) === (cmp0 || null)) return;
+    S.pendingPin = null;
+    S.pendingCmp = null;
+    unpin();
+    if (!bg) return;
+    if (S.index.has(bg)) pin(S.index.get(bg), S.features[S.index.get(bg)].properties);
+    else S.pendingPin = bg;   // kept when its metro loads (rebuild)
+    if (!vs) return;
+    if (S.pinnedProps && S.index.has(vs)) setCompare(S.index.get(vs), S.features[S.index.get(vs)].properties);
+    else S.pendingCmp = vs;
+  }
+
+  // Back on the Access tab: its layers, legend, card and address return as they were left.
+  function enterAccess({ how, view }) {
+    document.title = ACCESS_TITLE;
+    if (view) map.jumpTo(view);   // Back or Forward: the view of the address returned to
+    const h = readHash();
+    const bg = /^\d{12}$/.test(h.bg || '') ? h.bg : null;
+    let vs = /^\d{12}$/.test(h.vs || '') && h.vs !== bg ? h.vs : null;
+    if (how === 'switch') vs = bg && S.pinnedProps && S.pinnedProps.g === bg && S.cmpProps ? S.cmpProps.g : null;
+    startAccess().then(() => {
+      if (S.tab !== 'access' || !S.ix) return;
+      ACCESS_LAYERS.forEach((id) => { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'visible'); });
+      applySelection(bg, vs);
+      national = map.getZoom() < LOAD_ZOOM;
+      showTags();
+      renderLegend();
+      renderCard();
+      writeHash();
+      ensureMetros();
+      syncMetroSelect();
+      if (S.scale === 'view') map.once('idle', updateViewBreaks);
+    });
+  }
+
+  function enterRoutes(opts) {
+    document.title = ROUTES_TITLE;
+    if (!WR.routes) { $('#r-loading').textContent = 'Loading the schedules...'; $('#r-loading').hidden = false; }
+    loadRoutes().then((R) => { if (S.tab === 'routes') R.show(opts); }, () => {});
+  }
+
+  function switchTab(tab, href) {
+    history.replaceState(history.state, '', hereURL());   // Back returns to the view as it was left
+    if (S.tab === 'access') leaveAccess(); else if (WR.routes) WR.routes.hide();
+    S.tab = tab;
+    markTab();
+    history.pushState(null, '', href);
+    if (tab === 'access') enterAccess({ how: 'switch' });
+    else enterRoutes({ how: 'switch', fromOther: true });
+  }
+
+  tabLinks.forEach((a) => {
+    const tab = a.dataset.tabLink;
+    // the other tab's script and files start loading while the pointer rests on its link
+    const warm = () => {
+      if (tab === S.tab) return;
+      if (tab === 'access') startAccess();
+      else loadRoutes().then((R) => R.warm(routesMetro()), () => {});
+    };
+    a.addEventListener('pointerenter', warm);
+    a.addEventListener('focus', warm);
+    a.addEventListener('click', (e) => {
+      if (tab === S.tab) { e.preventDefault(); return; }
+      a.href = tab === 'routes' ? routesHref() : accessHref();   // so a click that opens a new browser tab opens this view
+      if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      switchTab(tab, a.href);
+    });
   });
+
+  // Back and Forward: the tab, the routes view and the selected block group of the address returned to
+  window.addEventListener('popstate', () => {
+    const tab = /routes\.html$/.test(location.pathname) ? 'routes' : 'access';
+    const fromOther = tab !== S.tab;
+    if (fromOther) {
+      if (S.tab === 'access') leaveAccess(); else if (WR.routes) WR.routes.hide();
+      S.tab = tab;
+      markTab();
+    }
+    const view = parseView(location.hash);
+    if (tab === 'access') enterAccess({ how: 'history', view });
+    else enterRoutes({ how: 'history', fromOther, view });
+  });
+
+  // what routes.js uses of this page
+  window.WR = { map, styleReady, metaReady, routesIndexReady, getJSON, vurl, viewParam, hereURL };
+
+  markTab();
+  if (S.tab === 'access') startAccess();
+  else enterRoutes({ how: 'landing', fromOther: false });
 })();

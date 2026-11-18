@@ -8,7 +8,7 @@ metropolitan areas, 2023–2025, with filters by income, car ownership, race and
 
 **Map:** https://smh172.github.io/transit-access-map/
 
-A second page, **Routes and buses** (https://smh172.github.io/transit-access-map/routes.html), draws each metro's
+A second tab, **Routes and buses** (https://smh172.github.io/transit-access-map/routes.html), draws each metro's
 public transit routes and moves its buses and trains on one weekday's published schedules, from 6:30 to 9:30 a.m.,
 over the jobs per square mile of each block group.
 
@@ -24,7 +24,7 @@ The panel has no car travel times for Jacksonville, Palm Bay and Riverside; thei
 same method, on 2026 OpenStreetMap street maps. It also has no census values for Hartford, Jacksonville, Palm Bay and
 Riverside; theirs come from the same American Community Survey files, added for this map.
 
-This repository holds the published pages only: `index.html` and `routes.html`, `app.js`, `style.css`,
+This repository holds the published pages only: `index.html` and `routes.html`, `app.js` and `routes.js`, `style.css`,
 `preview.jpg` and `preview_routes.jpg` (the images shown when the links are shared), and the data files the
 pages draw (`data/`: `metros.json`, the block-group boundaries in `bg/`, their census values in `acs/`, the
 counts of jobs and services at each travel time in `times/`, and each metro's routes, scheduled runs, stops and

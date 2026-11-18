@@ -201,14 +201,14 @@ a.link { color: var(--accent); font-weight: 600; text-underline-offset: 2px; }
 .maplibregl-ctrl-attrib { font-family: var(--font); }
 
 /* ---------- about dialog ---------- */
-dialog#about { width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 48px); border: 0; border-radius: 10px;
+dialog.about { width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 48px); border: 0; border-radius: 10px;
   padding: 22px 26px 18px; color: var(--ink); box-shadow: 0 10px 40px rgba(20, 22, 28, 0.35); }
-dialog#about::backdrop { background: rgba(20, 22, 28, 0.45); }
-dialog#about h2 { margin: 0 0 8px; font-size: 21px; }
-dialog#about h3 { margin: 14px 0 2px; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
-dialog#about p { margin: 0 0 6px; }
-dialog#about .small { font-size: 13.5px; color: var(--muted); }
-dialog#about a { color: var(--accent); }
+dialog.about::backdrop { background: rgba(20, 22, 28, 0.45); }
+dialog.about h2 { margin: 0 0 8px; font-size: 21px; }
+dialog.about h3 { margin: 14px 0 2px; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
+dialog.about p { margin: 0 0 6px; }
+dialog.about .small { font-size: 13.5px; color: var(--muted); }
+dialog.about a { color: var(--accent); }
 .about-close { position: absolute; top: 10px; right: 12px; margin: 0; }
 .about-close button { border: 0; background: none; font-size: 24px; line-height: 1; color: var(--faint); cursor: pointer; }
 .about-close button:hover { color: var(--ink); }
@@ -302,10 +302,10 @@ dialog#contact { width: min(440px, calc(100vw - 32px)); }
   .sheet-foot .btn-primary { width: 100%; }
   .sheet-links { justify-content: center; }
 }
-dialog#about .about-list { margin: 0 0 6px; padding-left: 18px; }
-dialog#about .about-glossary { margin: 0 0 6px; }
-dialog#about .about-glossary dt { font-weight: 700; margin-top: 6px; }
-dialog#about .about-glossary dd { margin: 0 0 0 14px; }
+dialog.about .about-list { margin: 0 0 6px; padding-left: 18px; }
+dialog.about .about-glossary { margin: 0 0 6px; }
+dialog.about .about-glossary dt { font-weight: 700; margin-top: 6px; }
+dialog.about .about-glossary dd { margin: 0 0 0 14px; }
 /* ---------- comparing two block groups ---------- */
 /* "Compare with another block group" is a button across the card, under the metro's name (Sierra, 2026-11-17:
    "Yes, make it a button"; it had been a 13 px link that no hint mentioned). "Stop comparing" stays a link. */
@@ -347,11 +347,64 @@ dialog#about .about-glossary dd { margin: 0 0 0 14px; }
 .ab-tag { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; pointer-events: none;
   background: var(--brand); color: #fff; font: 700 12px/1 var(--font); border: 2px solid #fff;
   box-shadow: 0 1px 4px rgba(20, 22, 28, 0.4); }
-dialog#about .about-list li { margin: 2px 0; }
+dialog.about .about-list li { margin: 2px 0; }
 
-/* ---------- the switch between this page and the routes page (routes.html), under the byline (Sierra, 2026-11-17) */
+/* ---------- the switch between the two tabs, under the byline (Sierra, 2026-11-17) */
 .views { display: flex; gap: 6px; margin-top: 8px; }
 .views a { flex: 1; padding: 5px 8px; border: 1px solid rgba(255, 255, 255, 0.5); border-radius: 6px; color: #fff;
            font-size: 13px; font-weight: 700; text-align: center; text-decoration: none; cursor: pointer; }
 .views a.on { background: #fff; border-color: #fff; color: var(--ink); cursor: default; }
 .views a:not(.on):hover { background: rgba(255, 255, 255, 0.14); }
+
+/* ---------- one page, two tabs (2026-11-17): each tab's own parts show only on that tab (body[data-tab], app.js) */
+body[data-tab="access"] .for-routes, body[data-tab="routes"] .for-access { display: none !important; }
+
+/* ---------- the Routes and buses tab (routes.js); until 2026-11-17 the routes page's own styles ---------- */
+#r-loading { position: absolute; inset: 0; display: grid; place-items: center; z-index: 1; color: var(--muted);
+             font-size: 15px; pointer-events: none; }
+#r-loading[hidden] { display: none; }
+/* the vehicles' canvas (deck.gl) sits in the map's top-right control corner, at z-index 2: the scale, the label at the
+   pointer and the "Selected" tag go above it (Sierra, 2026-11-17: "i dont like the busses running over the lower
+   scale"; "when you mouse over the text is behind the busses too") */
+body[data-tab="routes"] #legend { z-index: 2; }
+body[data-tab="routes"] .maplibregl-popup, body[data-tab="routes"] .maplibregl-marker { z-index: 3; }
+/* the call to select a block group (Sierra, 2026-11-17: "it needs to be more obvious that you can click block groups") */
+.callout { display: flex; gap: 9px; align-items: flex-start; margin: 10px 0; padding: 8px 10px; border-radius: 8px;
+           background: #eaf1f9; box-shadow: inset 3px 0 0 var(--accent); font-size: 14px; line-height: 1.35; }
+.callout svg { flex: none; margin-top: 1px; }
+.callout.off { display: none; }
+.key { display: grid; grid-template-columns: 54px 1fr; align-items: center; gap: 4px 10px; margin: 10px 0 6px;
+       font-size: 13.5px; }
+.key svg { display: block; }
+/* the picked block group: the Access tab's block-group card, under a way back to the whole metro */
+#r-sel { display: none; margin-bottom: 10px; }
+#r-sel.on { display: block; }
+.sel-routes { margin: 4px 0 8px; font-size: 13px; color: var(--muted); line-height: 1.3; }
+.sel-routes b { color: var(--ink); }
+.seltag { padding: 4px 8px; border-radius: 5px; background: var(--ink); color: #fff; font: 700 11.5px/1 var(--font);
+          white-space: nowrap; pointer-events: none; box-shadow: 0 1px 5px rgba(20, 22, 28, 0.4); }
+.seltag::after { content: ""; position: absolute; left: 50%; bottom: -5px; margin-left: -5px; border: 5px solid transparent;
+                 border-bottom: 0; border-top-color: var(--ink); }
+/* the clock, Play and the boxes, in the map options */
+.clock { display: flex; align-items: baseline; gap: 6px; }
+#r-clock { font-size: 30px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+#r-ampm { font-size: 14px; font-weight: 700; color: var(--muted); }
+#r-inservice { margin-left: auto; font-size: 12px; color: var(--muted); text-align: right; line-height: 1.2; }
+#r-inservice strong { display: block; font-size: 15px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.play-row { display: flex; align-items: flex-start; gap: 10px; margin-top: 6px; }
+#r-play { display: inline-flex; align-items: center; justify-content: center; gap: 5px; width: 74px; padding: 4px 0;
+          border: 1px solid var(--ink); border-radius: 6px; background: var(--ink); color: #fff; font-size: 13px;
+          font-weight: 700; cursor: pointer; }
+#r-play svg { flex: none; }
+.scrubwrap { flex: 1; min-width: 0; }
+#r-scrub { display: block; width: 100%; margin: 4px 0 0; accent-color: var(--accent); cursor: pointer; }
+.ticks { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.speednote { margin-top: 4px; font-size: 11.5px; color: var(--muted); }
+.toggles { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 8px; font-size: 13px; }
+.toggles label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
+.toggles label[hidden] { display: none; }
+/* the label at the pointer: the Access tab's, with a second line */
+body[data-tab="routes"] .bg-tip .maplibregl-popup-content span { display: block; font-weight: 400; color: var(--muted); }
+body[data-tab="routes"] .bg-tip .maplibregl-popup-content span.act { margin-top: 2px; font-weight: 700; color: var(--accent); }
+/* phones: the options sit in the panel, as on the Access tab */
+@media (max-width: 760px) { #r-clock { font-size: 26px; } }

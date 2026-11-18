@@ -1,949 +1,295 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Within Reach: Routes, Buses and Jobs</title>
-<meta name="description" content="Public transit routes and the buses on their morning schedules, over the jobs per square mile, in 84 U.S. metropolitan areas. By Sierra Arnold, Xavier University.">
-<!-- the preview shown when the link is shared, as on the map page (Sierra, 2026-11-17: "Yes, 1 to 4") -->
-<meta property="og:type" content="website">
-<meta property="og:title" content="Within Reach: Routes, Buses and Jobs">
-<meta property="og:description" content="Public transit routes and the buses on their morning schedules, over the jobs per square mile, in 84 U.S. metropolitan areas. By Sierra Arnold, Xavier University.">
-<meta property="og:url" content="https://smh172.github.io/transit-access-map/routes.html">
-<meta property="og:image" content="https://smh172.github.io/transit-access-map/preview_routes.jpg">
-<meta property="og:image:width" content="800">
-<meta property="og:image:height" content="420">
-<meta property="og:image:alt" content="A map of Chicago's public transit routes, with buses and trains on their morning schedules over the jobs per square mile">
-<meta name="twitter:card" content="summary_large_image">
-<!-- The "Routes and buses" page (layer 5), built from the Cincinnati mockup (mockups/routes_cincinnati/) at Sierra's
-     request, 2026-11-17: "ok looks good, can we exapnd to all cities"; "either local or on the main page". Its data:
-     build_layer5_routes.py (data/routes/<slug>/), with the map's own block groups (data/bg/<slug>.json). -->
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
-<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
-<!-- the map page's own stylesheet, so the two pages share one panel, header, search box, map options, scale, windows
-     and zoom buttons (Sierra, 2026-11-17: "the access left panel is big and the routes left panel is small. Both
-     designs work, but need to be aligned"; "in general, where possible, align them"; "like make the zooms the same,
-     where the buttons are the same, etc"). Below it, only what this page adds. -->
-<link href="style.css?v=994990c72c" rel="stylesheet">
-<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-<!-- the vehicles are drawn by deck.gl, over the map: the map library alone ran Chicago's 1,400 at 3 frames a second -->
-<script src="https://unpkg.com/deck.gl@9.0.38/dist.min.js"></script>
-<style>
-  #loading { position: absolute; inset: 0; display: grid; place-items: center; z-index: 1; color: var(--muted); font-size: 15px; }
-  /* the vehicles' canvas (deck.gl) sits in the map's top-right control corner, at z-index 2: the scale, the label at
-     the pointer and the "Selected" tag go above it (Sierra, 2026-11-17: "i dont like the busses running over the lower
-     scale"; "when you mouse over the text is behind the busses too") */
-  #legend { z-index: 2; }
-  .maplibregl-popup, .maplibregl-marker { z-index: 3; }
-  /* the call to select a block group (Sierra, 2026-11-17: "it needs to be more obvious that you can click block groups") */
-  .callout { display: flex; gap: 9px; align-items: flex-start; margin: 10px 0; padding: 8px 10px; border-radius: 8px;
-             background: #eaf1f9; box-shadow: inset 3px 0 0 var(--accent); font-size: 14px; line-height: 1.35; }
-  .callout svg { flex: none; margin-top: 1px; }
-  .callout.off { display: none; }
-  .key { display: grid; grid-template-columns: 54px 1fr; align-items: center; gap: 4px 10px; margin: 10px 0 6px;
-         font-size: 13.5px; }
-  .key svg { display: block; }
-  /* the picked block group: the map page's block-group card, under a way back to the whole metro */
-  #sel { display: none; margin-bottom: 10px; }
-  #sel.on { display: block; }
-  .sel-routes { margin: 4px 0 8px; font-size: 13px; color: var(--muted); line-height: 1.3; }
-  .sel-routes b { color: var(--ink); }
-  .seltag { padding: 4px 8px; border-radius: 5px; background: var(--ink); color: #fff; font: 700 11.5px/1 var(--font);
-            white-space: nowrap; pointer-events: none; box-shadow: 0 1px 5px rgba(20, 22, 28, 0.4); }
-  .seltag::after { content: ""; position: absolute; left: 50%; bottom: -5px; margin-left: -5px; border: 5px solid transparent;
-                   border-bottom: 0; border-top-color: var(--ink); }
-  /* the clock, Play and the boxes, in the map options */
-  .clock { display: flex; align-items: baseline; gap: 6px; }
-  #clock { font-size: 30px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
-  #ampm { font-size: 14px; font-weight: 700; color: var(--muted); }
-  #inservice { margin-left: auto; font-size: 12px; color: var(--muted); text-align: right; line-height: 1.2; }
-  #inservice strong { display: block; font-size: 15px; color: var(--ink); font-variant-numeric: tabular-nums; }
-  .play-row { display: flex; align-items: flex-start; gap: 10px; margin-top: 6px; }
-  #play { display: inline-flex; align-items: center; justify-content: center; gap: 5px; width: 74px; padding: 4px 0;
-          border: 1px solid var(--ink); border-radius: 6px; background: var(--ink); color: #fff; font-size: 13px;
-          font-weight: 700; cursor: pointer; }
-  #play svg { flex: none; }
-  .scrubwrap { flex: 1; min-width: 0; }
-  #scrub { display: block; width: 100%; margin: 4px 0 0; accent-color: var(--accent); cursor: pointer; }
-  .ticks { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
-  .speednote { margin-top: 4px; font-size: 11.5px; color: var(--muted); }
-  .toggles { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 8px; font-size: 13px; }
-  .toggles label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
-  .toggles label[hidden] { display: none; }
-  /* the label at the pointer: the map page's, with a second line */
-  .bg-tip .maplibregl-popup-content span { display: block; font-weight: 400; color: var(--muted); }
-  .bg-tip .maplibregl-popup-content span.act { margin-top: 2px; font-weight: 700; color: var(--accent); }
-  /* phones: the options sit in the panel, as on the map page */
-  @media (max-width: 760px) { #clock { font-size: 26px; } }
-</style>
+  <!-- written by publish/make_routes_page.py from index.html: edit index.html -->
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Within Reach: Routes, Buses and Jobs</title>
+  <meta name="description" content="Public transit routes and the buses on their morning schedules, over the jobs per square mile, in 84 U.S. metropolitan areas. By Sierra Arnold, Xavier University.">
+  <!-- the preview shown when the link is shared (Sierra, 2026-11-12, "yes 1-4 sound good") -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Within Reach: Routes, Buses and Jobs">
+  <meta property="og:description" content="Public transit routes and the buses on their morning schedules, over the jobs per square mile, in 84 U.S. metropolitan areas. By Sierra Arnold, Xavier University.">
+  <meta property="og:url" content="https://smh172.github.io/transit-access-map/routes.html">
+  <meta property="og:image" content="https://smh172.github.io/transit-access-map/preview_routes.jpg">
+  <meta property="og:image:width" content="800">
+  <meta property="og:image:height" content="420">
+  <meta property="og:image:alt" content="A map of Chicago's public transit routes, with buses and trains on their morning schedules over the jobs per square mile">
+  <meta name="twitter:card" content="summary_large_image">
+  <!-- each data folder's version, from its files' contents (publish/stamp_versions.py): every data file the page
+       fetches carries its folder's version, so a page and its data change together -->
+  <meta name="data-versions" content="metros=2960350e10,bg=e1c49896af,acs=4d6885d466,times=ce72a3250f,routes=33c26b095e">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
+  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+  <link href="style.css?v=522264a39c" rel="stylesheet">
+  <link rel="preload" href="routes.js?v=6ea5d98ddb" as="script">
 </head>
-<body>
-<div id="app">
-  <aside id="panel" aria-label="Metro and details">
-    <header class="brand">
-      <h1>Within Reach</h1>
-      <p class="tagline">Access to jobs and essential services by public transit and car</p>
-      <p class="byline">Sierra Arnold, Xavier University</p>
-      <nav class="views" aria-label="Views">
-        <a class="view" id="to-access" href="index.html?from=routes">Access</a>
-        <a class="view on" aria-current="page">Routes and buses</a>
-      </nav>
-    </header>
+<!-- One page for the two tabs, Access and Routes and buses, on one map and one panel: a tab swaps the panel's contents
+     and the map's layers without reloading (Sierra, 2026-11-17: "it would be cool if it doesnt totally relod when you
+     toggle between the two map types"; asked "Build the one-page version as proposed?": "Yes, build it"). data-tab is
+     the tab the page opens on; routes.html is this page opening on the Routes and buses tab, written from this file by
+     publish/make_routes_page.py. The routes tab's script, routes.js, loads on the first visit to that tab. -->
+<body data-tab="routes" data-routes="routes.js?v=6ea5d98ddb">
+  <div id="app">
+    <aside id="panel" aria-label="Metro and details">
+      <header class="brand">
+        <h1>Within Reach</h1>
+        <p class="tagline">Access to jobs and essential services by public transit and car</p>
+        <p class="byline">Sierra Arnold, Xavier University</p>
+        <!-- the switch between the tabs (Sierra, 2026-11-17, shown the prototype: "I like that."; "can we exapnd to
+             all cities") -->
+        <nav class="views" aria-label="Views">
+          <a class="view" data-tab-link="access" href="index.html?from=routes">Access</a>
+          <a class="view on" data-tab-link="routes" aria-current="page">Routes and buses</a>
+        </nav>
+      </header>
 
-    <div class="panel-body">
-      <form id="search" role="search" autocomplete="off">
-        <label class="visually-hidden" for="q">Search for an address or place</label>
-        <input id="q" type="search" placeholder="Search for an address or place" spellcheck="false">
-        <button type="submit" aria-label="Search">
-          <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M13 13l4.5 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-        </button>
-      </form>
-      <label class="visually-hidden" for="metro">Metro</label>
-      <select id="metro"></select>
-      <p id="status" class="status" role="status" aria-live="polite"></p>
-      <div id="controls-slot"></div>
-      <!-- the one way back, as on the map page (Sierra, 2026-11-17: "there should be a back to national map button";
-           "when youre mousing over blocks the back to national map disappears"): out to the national map at a metro's
-           level, back to the whole metro while a block group is selected; then the metro's note, if it has one -->
-      <button id="to-national" type="button" class="back" hidden>&lsaquo; Back to the national map</button>
-      <div id="note" class="note" hidden></div>
-      <div id="clickhint" class="callout"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 2.5l14.5 8.2-6.3 1.7-2.6 6.4z" fill="#115697" stroke="#fff" stroke-width="1.2" stroke-linejoin="round"/></svg>
-        <span id="clickhint-text"><strong>Select a block group</strong> to see its nearby buses and the jobs it can reach.</span></div>
-      <div id="sel" aria-live="polite"></div>
-      <div class="key" id="key"></div>
-      <p class="facts" id="sources"></p>
-    </div>
+      <div class="panel-body">
+        <form id="search" role="search" autocomplete="off">
+          <label class="visually-hidden" for="q">Search for an address or place</label>
+          <input id="q" type="search" placeholder="Search for an address or place" spellcheck="false">
+          <button type="submit" aria-label="Search">
+            <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M13 13l4.5 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </button>
+        </form>
 
-    <footer class="panel-foot">
-      <button type="button" id="about-open" class="link">About these routes</button>
-      <button type="button" id="contact-open" class="link">Contact</button>
-    </footer>
-  </aside>
+        <label class="visually-hidden" for="metro">Metro</label>
+        <select id="metro"><option value="">Choose a metro</option></select>
+        <p id="status" class="status for-access" role="status" aria-live="polite"></p>
+        <p id="r-status" class="status for-routes" role="status" aria-live="polite"></p>
 
-  <div id="stage">
-    <div id="map" role="region" aria-label="Map of public transit routes, buses and jobs"></div>
-    <div id="loading">Loading the schedules...</div>
-    <div id="legend" aria-label="Legend"></div>
-    <section id="controls" aria-labelledby="controls-title">
-      <div class="controls-head">
-        <h2 id="controls-title">Map options</h2>
-        <button type="button" id="controls-toggle" class="link" aria-expanded="true" aria-controls="controls-body">Hide</button>
+        <div id="controls-slot"></div>
+        <section id="card" class="for-access" aria-live="polite"></section>
+
+        <!-- the routes tab's panel -->
+        <div class="for-routes">
+          <!-- the one way back, as on the Access tab (Sierra, 2026-11-17: "there should be a back to national map button";
+               "when youre mousing over blocks the back to national map disappears"): out to the national map at a metro's
+               level, back to the whole metro while a block group is selected; then the metro's note, if it has one -->
+          <button id="r-back" type="button" class="back" hidden>&lsaquo; Back to the national map</button>
+          <div id="r-note" class="note" hidden></div>
+          <div id="r-clickhint" class="callout"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 2.5l14.5 8.2-6.3 1.7-2.6 6.4z" fill="#115697" stroke="#fff" stroke-width="1.2" stroke-linejoin="round"/></svg>
+            <span id="r-clickhint-text"><strong>Select a block group</strong> to see its nearby buses and the jobs it can reach.</span></div>
+          <div id="r-sel" aria-live="polite"></div>
+          <div class="key" id="r-key"></div>
+          <p class="facts" id="r-sources"></p>
+        </div>
       </div>
-      <div id="controls-body">
-        <div class="clock"><span id="clock">7:00</span><span id="ampm">a.m.</span>
-          <div id="inservice"><strong id="nbus">0</strong><span id="nbus-label">in service</span></div></div>
-        <div class="play-row">
-          <button id="play" type="button"><svg width="10" height="11" viewBox="0 0 10 11" aria-hidden="true"><rect x="1" y="0.5" width="3" height="10" rx="0.6" fill="currentColor"/><rect x="6" y="0.5" width="3" height="10" rx="0.6" fill="currentColor"/></svg>Pause</button>
-          <div class="scrubwrap">
-            <input id="scrub" type="range" min="23400" max="34200" step="30" value="25200" aria-label="Time of day">
-            <div class="ticks"><span>6:30</span><span>7:30</span><span>8:30</span><span>9:30</span></div>
+
+      <footer class="panel-foot">
+        <button type="button" id="welcome-open" class="link for-access">About this map</button>
+        <button type="button" id="about-open" class="link for-access">About the data</button>
+        <button type="button" id="about-routes-open" class="link for-routes">About these routes</button>
+        <button type="button" id="contact-open" class="link">Contact</button>
+      </footer>
+    </aside>
+
+    <div id="stage">
+      <div id="map" role="region" aria-label="Map of public transit routes, buses and jobs"></div>
+      <div id="r-loading" class="for-routes">Loading the schedules...</div>
+      <div id="legend" aria-label="Legend"></div>
+      <section id="controls" aria-labelledby="controls-title">
+        <div class="controls-head">
+          <h2 id="controls-title">Map options</h2>
+          <button type="button" id="controls-toggle" class="link" aria-expanded="true" aria-controls="controls-body">Hide</button>
+        </div>
+        <div id="controls-body">
+          <div class="for-access">
+            <div class="layers" role="group" aria-label="What the map counts">
+              <button type="button" data-layer="j" aria-pressed="true">Jobs</button>
+              <button type="button" data-layer="g" aria-pressed="false" disabled>Grocery stores</button>
+              <button type="button" data-layer="b" aria-pressed="false" disabled>Banks</button>
+              <button type="button" data-layer="h" aria-pressed="false" disabled>Hospitals</button>
+              <button type="button" data-layer="l" aria-pressed="false" disabled>Libraries</button>
+              <button type="button" data-layer="k" aria-pressed="false" disabled>Community colleges</button>
+            </div>
+
+            <div class="modes">
+              <label class="section-title" for="mode-select">Map shows</label>
+              <select id="mode-select" autocomplete="off">
+                <option value="t" selected>By public transit</option>
+                <option value="c">By car</option>
+                <option value="r">Car vs. public transit</option>
+              </select>
+            </div>
+
+            <div class="time">
+              <div class="time-head">
+                <label class="section-title" for="tau">Travel time</label>
+                <output id="tau-out" for="tau">30 minutes</output>
+              </div>
+              <input id="tau" type="range" min="0" max="3" step="1" value="1" autocomplete="off" disabled
+                     aria-valuetext="30 minutes">
+              <div class="time-ticks" aria-hidden="true">
+                <span style="left: 8px">15</span>
+                <span style="left: calc(8px + (100% - 16px) / 3)">30</span>
+                <span style="left: calc(8px + (100% - 16px) * 2 / 3)">45</span>
+                <span style="left: calc(100% - 8px)">60</span>
+              </div>
+            </div>
+
+            <section class="filters" aria-labelledby="filters-title">
+              <div class="filters-head">
+                <div class="section-title" id="filters-title">Filter block groups</div>
+                <button type="button" id="filters-clear" class="link" hidden>Clear</button>
+              </div>
+              <div class="filter-grid">
+                <label class="filter-label">Income in the metro
+                  <select id="f-income" autocomplete="off">
+                    <option value="0" selected>All incomes</option>
+                    <option value="1">Lowest quarter</option>
+                    <option value="2">Second quarter</option>
+                    <option value="3">Third quarter</option>
+                    <option value="4">Highest quarter</option>
+                  </select>
+                </label>
+                <label class="filter-label">Share of households without a car
+                  <select id="f-car" autocomplete="off">
+                    <option value="0" selected>All shares</option>
+                    <option value="10">10% or more</option>
+                    <option value="20">20% or more</option>
+                    <option value="30">30% or more</option>
+                    <option value="40">40% or more</option>
+                  </select>
+                </label>
+                <label class="filter-label">Race and ethnicity
+                  <select id="f-race" autocomplete="off">
+                    <option value="0" selected>All</option>
+                    <option value="1">Majority White</option>
+                    <option value="2">Majority non-White</option>
+                  </select>
+                </label>
+                <label class="filter-label">Share below twice the poverty line
+                  <select id="f-poverty" autocomplete="off">
+                    <option value="0" selected>All shares</option>
+                    <option value="30">30% or more</option>
+                    <option value="40">40% or more</option>
+                    <option value="50">50% or more</option>
+                    <option value="60">60% or more</option>
+                  </select>
+                </label>
+              </div>
+            </section>
+          </div>
+
+          <!-- the routes tab's options: the clock, Play and the boxes -->
+          <div class="for-routes" id="r-options">
+            <div class="clock"><span id="r-clock">7:00</span><span id="r-ampm">a.m.</span>
+              <div id="r-inservice"><strong id="r-nbus">0</strong><span id="r-nbus-label">in service</span></div></div>
+            <div class="play-row">
+              <button id="r-play" type="button"><svg width="10" height="11" viewBox="0 0 10 11" aria-hidden="true"><rect x="1" y="0.5" width="3" height="10" rx="0.6" fill="currentColor"/><rect x="6" y="0.5" width="3" height="10" rx="0.6" fill="currentColor"/></svg>Pause</button>
+              <div class="scrubwrap">
+                <input id="r-scrub" type="range" min="23400" max="34200" step="30" value="25200" aria-label="Time of day">
+                <div class="ticks"><span>6:30</span><span>7:30</span><span>8:30</span><span>9:30</span></div>
+              </div>
+            </div>
+            <div class="speednote">Sped up: 3 min/sec</div>
+            <div class="section-title">Show</div>
+            <div class="toggles">
+              <label><input type="checkbox" id="r-t-bus" checked> Buses</label>
+              <!-- rail on its own, for a metro whose bus schedules are incomplete (Sierra, 2026-11-17: "maybe for those
+                   cities a just rail toggle"); shown where the metro has rail or ferries -->
+              <label id="r-t-rail-label"><input type="checkbox" id="r-t-rail" checked> <span id="r-t-rail-text">Rail</span></label>
+              <label><input type="checkbox" id="r-t-route" checked> Routes</label>
+            </div>
           </div>
         </div>
-        <div class="speednote">Sped up: 3 min/sec</div>
-        <div class="section-title">Show</div>
-        <div class="toggles">
-          <label><input type="checkbox" id="t-bus" checked> Buses</label>
-          <!-- rail on its own, for a metro whose bus schedules are incomplete (Sierra, 2026-11-17: "maybe for those cities a
-               just rail toggle"); shown where the metro has rail or ferries -->
-          <label id="t-rail-label"><input type="checkbox" id="t-rail" checked> <span id="t-rail-text">Rail</span></label>
-          <label><input type="checkbox" id="t-route" checked> Routes</label>
-        </div>
+      </section>
+    </div>
+  </div>
+
+  <dialog id="welcome" class="sheet" aria-labelledby="welcome-title">
+    <div class="sheet-head">
+      <h2 id="welcome-title">Within Reach</h2>
+      <p class="sheet-tagline">Access to jobs and essential services by public transit and car</p>
+      <p class="sheet-sub">Sierra Arnold, Xavier University</p>
+    </div>
+    <div class="sheet-body">
+      <p>Households without a car are largely limited to the jobs and services they can reach by public transit.
+        This map counts the jobs, grocery stores, banks, hospitals, libraries and community colleges within reach of
+        each neighborhood (a Census block group), by public transit and by car.</p>
+      <!-- the second tab (Sierra, 2026-11-17, on mentioning it here and in the About window: "Yes, 1 to 4") -->
+      <p>The Routes and buses tab shows each metro's public transit routes, with its buses and trains moving on their
+        morning schedules over where the jobs are.</p>
+      <h3>Related papers</h3>
+      <ul class="welcome-papers">
+        <li><a href="https://github.com/smh172/evolution-transit-access/blob/main/evolution_transit_access.pdf" target="_blank" rel="noopener">The Evolution of Transit Access to Jobs in American Cities</a> <span>(draft)</span></li>
+        <li><a href="https://github.com/smh172/transit-access-essential-services/blob/main/transit_access_essential_services.pdf" target="_blank" rel="noopener">The Evolution of Transit Access to Essential Services</a> <span>(draft)</span></li>
+      </ul>
+    </div>
+    <form method="dialog" class="sheet-foot">
+      <div class="sheet-links">
+        <button type="button" id="welcome-contact" class="link">Contact</button>
       </div>
-    </section>
-  </div>
-</div>
+      <button class="btn-primary" value="explore" autofocus>Explore the map</button>
+    </form>
+  </dialog>
 
-<!-- what the page shows and where it comes from (Sierra, 2026-11-17: "Yes, build them"), in the map page's About window -->
-<dialog id="about" aria-labelledby="about-title">
-  <form method="dialog" class="about-close"><button aria-label="Close">&times;</button></form>
-  <h2 id="about-title">About these routes</h2>
-  <div id="about-body"></div>
-</dialog>
+  <dialog id="contact" class="sheet" aria-labelledby="contact-title">
+    <div class="sheet-head">
+      <div class="sheet-kicker" id="contact-title">Contact</div>
+      <h2>Sierra Arnold</h2>
+      <p class="sheet-sub">Xavier University</p>
+    </div>
+    <div class="sheet-body">
+      <dl class="contact-list">
+        <dt>Email</dt>
+        <dd><a href="mailto:arnolds7@xavier.edu">arnolds7@xavier.edu</a></dd>
+        <dt>Website</dt>
+        <dd><a href="https://www.sierraharnold.com" target="_blank" rel="noopener">sierraharnold.com</a></dd>
+      </dl>
+    </div>
+    <form method="dialog" class="sheet-foot sheet-foot-end">
+      <button class="btn-primary" value="back" autofocus>Back to the map</button>
+    </form>
+  </dialog>
 
-<!-- the map page's contact window -->
-<dialog id="contact" class="sheet" aria-labelledby="contact-title">
-  <div class="sheet-head">
-    <div class="sheet-kicker" id="contact-title">Contact</div>
-    <h2>Sierra Arnold</h2>
-    <p class="sheet-sub">Xavier University</p>
-  </div>
-  <div class="sheet-body">
-    <dl class="contact-list">
-      <dt>Email</dt>
-      <dd><a href="mailto:arnolds7@xavier.edu">arnolds7@xavier.edu</a></dd>
-      <dt>Website</dt>
-      <dd><a href="https://www.sierraharnold.com" target="_blank" rel="noopener">sierraharnold.com</a></dd>
+  <dialog id="about" class="about" aria-labelledby="about-title">
+    <form method="dialog" class="about-close"><button aria-label="Close">&times;</button></form>
+    <h2 id="about-title">About the data</h2>
+    <p>Each block group is colored by how many jobs, or facilities of one essential service, its residents can reach within the chosen travel time, by public transit or by car, or by how many times more a car reaches. Darker orange means fewer and darker blue more; on the car vs. public transit map, orange marks the largest car advantage. By default the colors are the same at every travel time, so the map changes as the slider moves. The color scale menu in the legend can instead fit them to the chosen travel time or, for jobs, to what is on screen.</p>
+    <h3>Trips</h3>
+    <p>By public transit: door-to-door trips by walking and public transit, including waits and transfers, timed as the median over departures between 7 and 9 a.m. on one weekday per quarter, on the schedules archived for that day. Public transit times are from 2023 to 2025, each metro's latest year of usable schedules. By car: driving with no traffic, so the car counts are an upper bound. Driving times are from 2026 street maps.</p>
+    <h3>What is counted</h3>
+    <ul class="about-list">
+      <li><strong>Jobs:</strong> all jobs in the Census Bureau's LODES, 2023 (2016 in Alaska and 2021 in Michigan, the latest years published there).</li>
+      <li><strong>Grocery stores:</strong> supermarkets, superstores and large grocery stores that accept SNAP (USDA).</li>
+      <li><strong>Banks:</strong> full-service bank offices (FDIC).</li>
+      <li><strong>Hospitals:</strong> general acute care hospitals (CMS).</li>
+      <li><strong>Libraries:</strong> central and branch public libraries (IMLS).</li>
+      <li><strong>Community colleges:</strong> public two-year college campuses (NCES).</li>
+    </ul>
+    <h3>Neighborhood values</h3>
+    <p>Population, median household income, the share of people below twice the poverty line, the share of households without a car and the shares by race and ethnicity come from the American Community Survey, 2018–22. White, Black and Asian count people who are not Hispanic; Hispanic counts people of any race. The income filter splits each metro's block groups into four groups of equal size by median household income. The race and ethnicity filter keeps majority-White block groups, where more than half of the residents are White and not Hispanic, or majority non-White ones, where more than half are Black, Asian, Hispanic (of any race) or of another group. For Hartford, Jacksonville, Palm Bay and Riverside, which the papers' data lack, the census values come from the same survey files, added for this map.</p>
+    <h3>Routes and buses</h3>
+    <p>The Routes and buses tab draws each metro's public transit routes and moves its buses and trains on one weekday's published schedules, from 6:30 to 9:30 a.m., over the jobs per square mile of each block group. Its own About window lists each metro's schedules and date.</p>
+    <h3>Glossary</h3>
+    <dl class="about-glossary">
+      <dt>Block group</dt><dd>A Census Bureau area of about 600 to 3,000 people, the smallest the map shows; the map also calls it a neighborhood.</dd>
+      <dt>Median block group</dt><dd>The middle block group of a metro: half reach more and half reach less. The metro overview uses it to describe the metro.</dd>
+      <dt>Higher than X%</dt><dd>For a block group, the share of its metro's block groups with a lower value; in the metro overview, the share of the mapped metros with a lower median.</dd>
     </dl>
-  </div>
-  <form method="dialog" class="sheet-foot sheet-foot-end">
-    <button class="btn-primary" value="back" autofocus>Back to the map</button>
-  </form>
-</dialog>
+    <h3>Coverage</h3>
+    <p id="about-coverage"></p>
+    <h3>Source</h3>
+    <p>Sierra Arnold, <a href="https://github.com/smh172/evolution-transit-access/blob/main/evolution_transit_access.pdf" target="_blank" rel="noopener">"The Evolution of Transit Access to Jobs in American Cities"</a> and <a href="https://github.com/smh172/transit-access-essential-services/blob/main/transit_access_essential_services.pdf" target="_blank" rel="noopener">"The Evolution of Transit Access to Essential Services"</a>, which describe the sources and methods in full.</p>
+    <h3>How to cite</h3>
+    <p>Arnold, Sierra. 2026. <i>Within Reach: Access to Jobs and Essential Services by Public Transit and Car.</i> https://smh172.github.io/transit-access-map/</p>
+    <h3>Credits</h3>
+    <p class="small">Public transit schedules include data from <a href="https://www.transit.land/terms" target="_blank" rel="noopener">Transitland</a>, the Mobility Database and the Southeastern Pennsylvania Transportation Authority. Street network data &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>, available under the Open Database License. Jobs from the U.S. Census Bureau, LEHD Origin-Destination Employment Statistics (LODES 8). Population, income, poverty, race and ethnicity, and vehicles from the Census Bureau's American Community Survey, 2018–22. Services from USDA (SNAP retailers), FDIC (Summary of Deposits), CMS (Provider of Services), IMLS (Public Libraries Survey) and NCES (IPEDS). Boundaries from the Census Bureau's 2020 cartographic boundary files. Routing was run on resources of the Ohio Supercomputer Center. Basemap by OpenFreeMap and OpenMapTiles. Address search by Nominatim.</p>
+  </dialog>
 
-<script>
-(async function () {
-  const INK = '#1d2027', BUS = '#ffc61a', RAIL = '#115697', NO_VALUE = '#d6d8db';
-  const T0 = 6.5 * 3600, T1 = 9.5 * 3600;     // the loop: 6:30 to 9:30 a.m.
-  const P0 = 7 * 3600, P1 = 9 * 3600;         // the routing's departure window
-  const TRAIL = 100;                           // seconds of schedule behind each bus
-  const SPEED = 180;                           // 3 minutes of schedule a second: the loop in one minute
-  // the map page's zooms (app.js), so the two pages move alike (Sierra, 2026-11-17: "like make the zooms the same"): a
-  // metro opens on its box, at zoom 11 at most; a click on a block group zooms in to 12 when the map is further out; a
-  // search goes to 13.5. They replace the page's own zoom to a selected block group (14.5, then 13: "when you click a bg
-  // it zooms too far in") and its opening view on the extent of the stops.
-  const CLICK_ZOOM = 12, SEARCH_ZOOM = 13.5, METRO_MAX_ZOOM = 11, LOAD_ZOOM = 6.5;
-  const STATES = { '01': 'Alabama', '02': 'Alaska', '04': 'Arizona', '05': 'Arkansas', '06': 'California', '08': 'Colorado',
-    '09': 'Connecticut', '10': 'Delaware', '11': 'District of Columbia', '12': 'Florida', '13': 'Georgia', '15': 'Hawaii',
-    '16': 'Idaho', '17': 'Illinois', '18': 'Indiana', '19': 'Iowa', '20': 'Kansas', '21': 'Kentucky', '22': 'Louisiana',
-    '23': 'Maine', '24': 'Maryland', '25': 'Massachusetts', '26': 'Michigan', '27': 'Minnesota', '28': 'Mississippi',
-    '29': 'Missouri', '30': 'Montana', '31': 'Nebraska', '32': 'Nevada', '33': 'New Hampshire', '34': 'New Jersey',
-    '35': 'New Mexico', '36': 'New York', '37': 'North Carolina', '38': 'North Dakota', '39': 'Ohio', '40': 'Oklahoma',
-    '41': 'Oregon', '42': 'Pennsylvania', '44': 'Rhode Island', '45': 'South Carolina', '46': 'South Dakota',
-    '47': 'Tennessee', '48': 'Texas', '49': 'Utah', '50': 'Vermont', '51': 'Virginia', '53': 'Washington',
-    '54': 'West Virginia', '55': 'Wisconsin', '56': 'Wyoming' };
-  const fmt = new Intl.NumberFormat('en-US');
-  const getJSON = (u) => fetch(u).then((r) => { if (!r.ok) throw new Error(`${u}: ${r.status}`); return r.json(); });
-  // a device set to reduce motion opens paused, with Play one press away (before it goes public, 2026-11-17)
-  const still = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-  let T = 7 * 3600, playing = !still;
-  let sel = null;                              // the picked block group: {g, trips: Set, routes: [...], stops: [...]}
+  <!-- the routes tab's window, on what it shows and where it comes from (Sierra, 2026-11-17: "Yes, build them"), in
+       the About window's style; routes.js fills it for the national map or the metro shown -->
+  <dialog id="about-routes" class="about" aria-labelledby="about-routes-title">
+    <form method="dialog" class="about-close"><button aria-label="Close">&times;</button></form>
+    <h2 id="about-routes-title">About these routes</h2>
+    <div id="about-routes-body"></div>
+  </dialog>
 
-  // the map options: Hide and Show, and on phones in the panel, as on the map page
-  const controls = document.getElementById('controls');
-  document.getElementById('controls-toggle').addEventListener('click', (e) => {
-    const hide = !controls.classList.contains('collapsed');
-    controls.classList.toggle('collapsed', hide);
-    e.currentTarget.textContent = hide ? 'Show' : 'Hide';
-    e.currentTarget.setAttribute('aria-expanded', String(!hide));
-  });
-  const phone = window.matchMedia('(max-width: 760px)');
-  const placeControls = () => (phone.matches ? document.getElementById('controls-slot') : document.getElementById('stage')).appendChild(controls);
-  phone.addEventListener('change', placeControls);
-  placeControls();
-
-  // ---------- which metro: ?metro=, else the one under the view in the address, else Cincinnati ----------
-  const [index, metrosAll] = await Promise.all([getJSON('data/routes/index.json'), getJSON('data/metros.json')]);
-  const metros = metrosAll.metros || metrosAll;
-  const have = new Set(index.map((x) => x.slug));
-  const inBox = (b, lon, lat) => lon >= b[0] && lon <= b[2] && lat >= b[1] && lat <= b[3];
-  // a metro chosen by its circle or the menu: the map flies to it as the map page's does (its box, padding 40, zoom 11
-  // at most), then the metro's page opens at the view it reached (Sierra, 2026-11-17: "i like the slow zoom in on the
-  // acces, the routes doesnt do that")
-  let leaving = false;   // a flight or a zoom past the metro's scale is taking the page to another view
-  // the metro's files start downloading as the flight starts, so the next page finds them in the browser's cache
-  // (Sierra, 2026-11-17: "and everything still loads pretty slow on the green tab")
-  function prefetchMetro(s) {
-    for (const n of ['meta', 'routes', 'trips', 'stops', 'calls', 'bgstops', 'jobs']) fetch(`data/routes/${s}/${n}.json`).catch(() => {});
-    fetch(`data/bg/${s}.json`).catch(() => {});
-  }
-  function flyToMetro(m, s) {
-    const rec = metros.find((x) => x.slug === s);
-    const go = () => {
-      const c = m.getCenter();
-      location.href = `routes.html?metro=${s}#view=${m.getZoom().toFixed(2)}/${c.lat.toFixed(4)}/${c.lng.toFixed(4)}`;
-    };
-    const cam = rec && m.cameraForBounds([[rec.bbox[0], rec.bbox[1]], [rec.bbox[2], rec.bbox[3]]], { padding: 40, maxZoom: METRO_MAX_ZOOM });
-    if (!cam) { location.href = `routes.html?metro=${s}`; return; }
-    leaving = true;
-    prefetchMetro(s);
-    m.setMinZoom(2);
-    m.once('moveend', go);
-    m.flyTo({ center: cam.center, zoom: cam.zoom });
-  }
-  const hv = location.hash.match(/view=([\d.]+)\/(-?[\d.]+)\/(-?[\d.]+)/);
-  let slug = new URLSearchParams(location.search).get('metro');
-  if (!have.has(slug)) {
-    // a view in the address over a metro and close enough to be its own (as from the map page's tab), else no metro:
-    // the national map (it was Cincinnati until 2026-11-17; Sierra: "the routes and busses tab seems to only have cincy rn")
-    const hit = hv && +hv[1] >= 8 && metros.find((m) => have.has(m.slug) && inBox(m.bbox, +hv[3], +hv[2]));
-    slug = hit ? hit.slug : null;
-  }
-  if (!slug) { national(); return; }
-
-  // ---------- the national map: the 84 metros as circles; one is chosen by its circle, the menu or a search ----------
-  function national() {
-    const US_BOUNDS = [[-124.8, 24.4], [-66.9, 49.4]];
-    const short = new Map(index.map((x) => [x.slug, x.short]));
-    const menu = document.getElementById('metro');
-    menu.innerHTML = '<option value="">Choose a metro</option>';
-    for (const x of [...index].sort((a, b) => a.short.localeCompare(b.short))) {
-      const o = document.createElement('option');
-      o.value = x.slug; o.textContent = x.short;
-      menu.appendChild(o);
-    }
-    menu.addEventListener('change', () => { if (menu.value) flyToMetro(map, menu.value); });
-    document.getElementById('clickhint-text').innerHTML =
-      '<strong>Choose a metro</strong> or search for an address to see its public transit routes and buses.';
-    document.getElementById('key').style.display = 'none';
-    // the map options stay where they are on every view, as on the map page, idle until a metro is chosen (Sierra,
-    // 2026-11-17: "its kind of weird that the right panel is already in palce for the access tab but not for the green tab")
-    for (const el of document.querySelectorAll('#controls-body button, #controls-body input')) el.disabled = true;
-    document.getElementById('inservice').style.visibility = 'hidden';
-    document.querySelector('#controls .speednote').textContent = 'Choose a metro to see its buses running.';
-    document.getElementById('controls-body').style.opacity = '0.6';
-    // what the circles' sizes mean (Sierra, 2026-11-17: "does it make sense for them to all be the same size?")
-    document.getElementById('sources').textContent = 'Larger circles: more buses and trains running at 8 a.m. on the metro\'s schedule date.';
-    document.getElementById('about-body').innerHTML = `
-      <h3>Schedules</h3><ul class="about-list">
-        <li>Each metro's public transit, from GTFS files in the Transitland and Mobility Database archives.</li>
-        <li>For each metro, the latest date behind the Access map's values on which every schedule file runs trips.</li>
-        <li>Vehicles are placed by their scheduled stop times, not live locations, and move along their routes between stops.</li></ul>
-      <h3>Map</h3><ul class="about-list">
-        <li>The green shading shows jobs per square mile of land, counted at the workplace (LODES).</li></ul>
-      <h3>Credits</h3><ul class="about-list">
-        <li>Street map &copy; OpenStreetMap contributors.</li><li>Basemap by OpenFreeMap and OpenMapTiles.</li>
-        <li>Vehicles drawn with deck.gl.</li></ul>`;
-    const map = new maplibregl.Map({
-      container: 'map', style: 'https://tiles.openfreemap.org/styles/positron', bounds: US_BOUNDS,
-      fitBoundsOptions: { padding: 30 }, minZoom: 2.5, maxZoom: 16, dragRotate: false, pitchWithRotate: false,
-      touchPitch: false, attributionControl: false, hash: 'view',
-    });
-    map.touchZoomRotate.disableRotation();
-    map.addControl(new maplibregl.AttributionControl({ compact: true,
-      customAttribution: 'Routes data: S. Arnold. Schedules include <a href="https://www.transit.land/terms" target="_blank" rel="noopener">Transitland</a> data.' }), 'bottom-right');
-    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
-    const go = (s, view = '') => { location.href = `routes.html?metro=${s}${view}`; };
-    map.on('load', async () => {
-      document.getElementById('loading').remove();
-      // the circles' color: jobs per square mile in the metro's central business district (index.json, dens_cbd), on steps
-      // that split the 84 metros into eighths, in the metro view's greens (Sierra, 2026-11-17: "the greens at the national map
-      // arent in any kind of scale, while the blues are"; "myabe say in the central business district")
-      const greens = (await getJSON(`data/routes/${index[0].slug}/meta.json`)).greens;
-      const twoSig = (x) => { const m = Math.pow(10, Math.floor(Math.log10(x)) - 1); return Math.round(x / m) * m; };
-      const dv = index.map((x) => x.dens_cbd).filter((v) => v > 0).sort((a, b) => a - b);
-      const dbr = [];
-      for (let i = 1; i < greens.length; i++) {
-        const b = twoSig(dv[Math.floor((i * dv.length) / greens.length)]);
-        if (!dbr.length || b > dbr[dbr.length - 1]) dbr.push(b);
-      }
-      const dstep = ['step', ['get', 'd'], greens[0]];
-      dbr.forEach((b, i) => dstep.push(b, greens[i + 1]));
-      const dens = new Map(index.map((x) => [x.slug, x.dens_cbd || 0]));
-      const kfmt = (v) => (v >= 1000 ? `${fmt.format(Math.round(v / 100) / 10)}k` : fmt.format(v));
-      document.getElementById('legend').innerHTML = `
-        <div class="lg-title">Jobs per square mile in each metro's central business district</div>
-        <div class="lg-bar">${greens.map((c) => `<span style="background:${c}"></span>`).join('')}</div>
-        <div class="lg-ticks">${dbr.map((b, i) => `<span style="left:${((i + 1) / greens.length) * 100}%">${kfmt(b)}</span>`).join('')}</div>
-        <div class="lg-ends"><span>Fewer jobs</span><span>More jobs</span></div>
-        <div class="lg-note">The central business district here is the area within a mile of the spot with the most jobs within a mile. Each color holds about an eighth of the ${index.length} metros.</div>`;
-      // zooming in past the metro scale opens the metro under the middle of the map, as the map page loads it
-      map.on('zoomend', () => {
-        if (leaving || map.getZoom() < 8) return;
-        const c = map.getCenter(), area = (x) => (x.bbox[2] - x.bbox[0]) * (x.bbox[3] - x.bbox[1]);
-        const hit = metros.filter((x) => have.has(x.slug) && inBox(x.bbox, c.lng, c.lat)).sort((a, b) => area(a) - area(b))[0];
-        if (!hit) return;
-        leaving = true;
-        location.href = `routes.html?metro=${hit.slug}#view=${map.getZoom().toFixed(2)}/${c.lat.toFixed(4)}/${c.lng.toFixed(4)}`;
-      });
-      // green, the tab's color, and sized by the buses and trains running at 8 a.m., by the map page's formula (the
-      // square root of the share of the largest) (Sierra, 2026-11-17: "since that tab is green, maybe the circles should
-      // be green? and does it make sense for them to all be the same size?")
-      const veh = new Map(index.map((x) => [x.slug, x.vehicles_8am || 0]));
-      const maxV = Math.max(...veh.values());
-      map.addSource('metros', { type: 'geojson', data: { type: 'FeatureCollection', features: metros
-        .filter((m) => have.has(m.slug) && m.center)
-        .sort((a, b) => veh.get(b.slug) - veh.get(a.slug))   // the small ones drawn last, on top
-        .map((m) => ({ type: 'Feature', properties: { slug: m.slug, name: short.get(m.slug), n: veh.get(m.slug),
-          d: dens.get(m.slug), size: Math.sqrt(veh.get(m.slug) / maxV) }, geometry: { type: 'Point', coordinates: m.center } })) } });
-      map.addLayer({ id: 'metro-dots', type: 'circle', source: 'metros', paint: {
-        'circle-radius': ['interpolate', ['linear'], ['zoom'],
-          3, ['+', 3, ['*', 6, ['get', 'size']]], 7, ['+', 5, ['*', 10, ['get', 'size']]]],
-        'circle-color': dstep, 'circle-opacity': 0.95,
-        'circle-stroke-color': '#2f3440', 'circle-stroke-width': 1.25 } });
-      const tip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, className: 'bg-tip', offset: 12 });
-      // a pointer near a circle counts as on it, the nearest circle winning, as on the map page (Sierra, 2026-11-17: "the
-      // tiny circles are kind of hard to click, can you loosen the precision or something so if you click near it still
-      // opens"): within 8 px of a circle's edge, 14 px on a touch screen; a pointer on a circle takes that circle, as before.
-      // The radius as the layer draws it (3 + 6 size at zoom 3, 5 + 10 size at zoom 7), plus its 1.25 px outline.
-      const coarse = window.matchMedia('(pointer: coarse)');
-      const radius = (z, s) => 3 + 6 * s + Math.min(1, Math.max(0, (z - 3) / 4)) * (2 + 4 * s) + 1.25;
-      const dotAt = (pt) => {
-        const on = map.queryRenderedFeatures(pt, { layers: ['metro-dots'] });
-        if (on.length) return on[0].properties;
-        const tol = coarse.matches ? 14 : 8, z = map.getZoom();
-        let best = null, bestD = Infinity;
-        for (const f of map.queryRenderedFeatures([[pt.x - tol, pt.y - tol], [pt.x + tol, pt.y + tol]], { layers: ['metro-dots'] })) {
-          const c = map.project(f.geometry.coordinates);
-          const d = Math.hypot(c.x - pt.x, c.y - pt.y) - radius(z, f.properties.size);
-          if (d <= tol && d < bestD) { best = f.properties; bestD = d; }
-        }
-        return best;
-      };
-      map.on('mousemove', (e) => {
-        const p = dotAt(e.point);
-        if (!p) { map.getCanvas().style.cursor = ''; tip.remove(); return; }
-        map.getCanvas().style.cursor = 'pointer';
-        tip.setLngLat(e.lngLat).setHTML(`${p.name}<span>${fmt.format(p.n)} ${p.n === 1 ? 'bus or train' : 'buses and trains'} running at 8 a.m.; ${fmt.format(p.d)} jobs per square mile in its central business district</span><span class="act">Select to see its routes and buses</span>`).addTo(map);
-      });
-      map.on('mouseout', () => { map.getCanvas().style.cursor = ''; tip.remove(); });
-      map.on('click', (e) => { const p = dotAt(e.point); if (p) flyToMetro(map, p.slug); });
-    });
-    // the address search: a place in a metro with routes opens that metro there, as from the metro view
-    const setStatus = (msg) => { document.getElementById('status').textContent = msg; };
-    document.getElementById('search').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const q = document.getElementById('q').value.trim();
-      if (!q) return;
-      setStatus('Searching…');
-      try {
-        const url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=us&q=' + encodeURIComponent(q);
-        const res = await fetch(url, { headers: { Accept: 'application/json' } });
-        if (!res.ok) throw new Error(`search: HTTP ${res.status}`);
-        const hits = await res.json();
-        if (!hits.length) { setStatus('No match found.'); return; }
-        const lng = Number(hits[0].lon), lat = Number(hits[0].lat);
-        const area = (m) => (m.bbox[2] - m.bbox[0]) * (m.bbox[3] - m.bbox[1]);
-        const m = metros.filter((x) => have.has(x.slug) && inBox(x.bbox, lng, lat)).sort((a, b) => area(a) - area(b))[0];
-        if (!m) { setStatus('That place is outside the mapped metros.'); return; }
-        go(m.slug, `#view=${SEARCH_ZOOM}/${lat.toFixed(5)}/${lng.toFixed(5)}`);
-      } catch (err) {
-        console.error(err);
-        setStatus('Search is not available right now.');
-      }
-    });
-    // the map page's tab opens the map page's national view
-    document.getElementById('to-access').addEventListener('click', (e) => { e.currentTarget.href = 'index.html?from=routes'; });
-  }
-  const base = `data/routes/${slug}/`;
-  // the routes data and the basemap load at the same time (Sierra, 2026-11-17: "Yes, do it"): the files start
-  // downloading here, and the map starts below from the metro's box in the metro list (the same box as its meta.json)
-  const dataReady = Promise.all([
-    getJSON(`data/bg/${slug}.json`),
-    ...['meta', 'routes', 'trips', 'stops', 'calls', 'bgstops', 'jobs'].map((n) => getJSON(`${base}${n}.json`))]);
-
-  // ---------- the map: opens as the map page opens a metro (its box, padding 40, zoom 11 at most); stays at the
-  // metro's scale (zoom at most 0.6 below that view, inside its box widened) ----------
-  const mrec = metros.find((m) => m.slug === slug) || {};
-  const bb = mrec.bbox;
-  const bounds = [[bb[0], bb[1]], [bb[2], bb[3]]];
-  // a view in the address (as from the map page's tab) is kept when it is over this metro and close enough
-  const viewKept = !!hv && inBox(bb, +hv[3], +hv[2]) && +hv[1] >= 8;
-  if (hv && !viewKept) history.replaceState(null, '', `${location.pathname}${location.search}`);
-  const map = new maplibregl.Map({
-    container: 'map', style: 'https://tiles.openfreemap.org/styles/positron',
-    bounds, fitBoundsOptions: { padding: 40, maxZoom: METRO_MAX_ZOOM },
-    maxZoom: 16,   // no bounds: they forced a closer zoom than the map page's on wide screens (Sierra, 2026-11-17:
-                   // "when im at the city level the zoom for the two tabs is different"); the minimum zoom keeps the metro's scale
-    dragRotate: false, pitchWithRotate: false, touchPitch: false, attributionControl: false, hash: 'view',
-  });
-  map.touchZoomRotate.disableRotation();
-  // the zoom buttons at the bottom right, above the credits, as on the map page
-  map.addControl(new maplibregl.AttributionControl({ compact: true,
-    customAttribution: 'Routes data: S. Arnold. Schedules include <a href="https://www.transit.land/terms" target="_blank" rel="noopener">Transitland</a> data.' }), 'bottom-right');
-  map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
-  const mapReady = new Promise((res) => map.on('load', res));
-  const [[bgfc, meta, routes, tripsRaw, stops, callsRaw, bgstops, jobs]] = await Promise.all([dataReady, mapReady]);
-  const calls = callsRaw.calls;
-  const city = meta.short.split(',')[0];
-  document.title = `Within Reach: Routes, Buses and Jobs, ${meta.short}`;
-  // the header is the map page's since the two were aligned (2026-11-17); the year is in the sources line
-
-  // the metro menu: every metro with schedules, by its short name
-  const menu = document.getElementById('metro');
-  for (const x of [...index].sort((a, b) => a.short.localeCompare(b.short))) {
-    const o = document.createElement('option');
-    o.value = x.slug; o.textContent = x.short; o.selected = x.slug === slug;
-    menu.appendChild(o);
-  }
-  menu.addEventListener('change', () => flyToMetro(map, menu.value));
-
-  // the sources, from the metro's own agencies and date
-  const ag = meta.agencies;
-  const hasRail = meta.routes.some((r) => r.kind === 'rail'), hasFerry = meta.routes.some((r) => r.kind === 'ferry');
-  const modes = hasRail && hasFerry ? 'Buses, trains and ferries' : hasRail ? 'Buses and trains' : hasFerry ? 'Buses and ferries' : 'Buses';
-  const agTxt = ag.length === 0 ? 'the' : ag.length === 1 ? `the ${ag[0]}`
-    : ag.length <= 3 ? `the ${ag.slice(0, -1).join(', ')} and ${ag[ag.length - 1]}` : `the ${ag.slice(0, 2).join(', ')} and ${['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'][ag.length - 2] || ag.length - 2} other agencies'`;
-  document.getElementById('sources').textContent =
-    `${modes} follow ${agTxt} schedules for a ${meta.weekday} in ${meta.month} ${meta.year}, not live locations. Jobs: LODES, ${meta.jobs_year}.`;
-  if (!meta.runs) {
-    document.getElementById('clickhint-text').innerHTML = '<strong>Select a block group</strong> to see the jobs it can reach.';
-  }
-  // the metro's note, where its schedule files leave out its main public transit or run none on the date
-  if (meta.note) {
-    const noteEl = document.getElementById('note');
-    noteEl.textContent = meta.note;
-    noteEl.hidden = false;
-  }
-
-  // block groups: the map's own shapes and 30-minute values, with the jobs per square mile in greens
-  const jb = meta.jbreaks, greens = meta.greens;
-  const jclass = (d) => { let i = 0; while (i < jb.length && d >= jb[i]) i += 1; return i; };
-  for (const f of bgfc.features) {
-    const p = f.properties, j = jobs[p.g];
-    p.jobs = j ? j[0] : null; p.dens = j ? j[1] : null;
-    p.jfill = p.dens == null ? NO_VALUE : greens[jclass(p.dens)];
-    p.v = p.t;                                 // jobs within 30 minutes by public transit (c: by car)
-  }
-  const bgByG = new Map(bgfc.features.map((f) => [f.properties.g, f.properties]));
-  const bgFeat = new Map(bgfc.features.map((f) => [f.properties.g, f]));
-
-  // runs: [lon, lat, t] triples, each after the first stored as a difference from the one before
-  const kinds = meta.routes.map((r) => (r.kind === 'bus' ? 0 : 1));
-  const trips = tripsRaw.trips.map((d, i) => {
-    const n = d.p.length / 3, lon = new Float64Array(n), lat = new Float64Array(n), t = new Float64Array(n);
-    let a = 0, b = 0, c = 0;
-    for (let k = 0; k < n; k++) {
-      a += d.p[3 * k]; b += d.p[3 * k + 1]; c += d.p[3 * k + 2];
-      lon[k] = a / 1e5; lat[k] = b / 1e5; t[k] = c;
-    }
-    return { r: d.r, kind: kinds[d.r] || 0, lon, lat, t, t0: t[0], t1: t[n - 1], phase: (i * 0.6180339887) % 1 };
-  });
-
-  // ---------- the map's view and layers, once the data and the basemap are both in ----------
-  document.getElementById('loading').remove();
-  document.getElementById('to-national').hidden = false;
-  // out to the country with the map's own motion, as on the map page, then the national view opens there
-  document.getElementById('to-national').addEventListener('click', () => {
-    if (sel) { unpick(true); return; }   // while a block group is selected, back to the whole metro
-    leaving = true;
-    map.setMinZoom(2);
-    map.once('moveend', () => { location.href = 'routes.html'; });
-    map.fitBounds([[-124.8, 24.4], [-66.9, 49.4]], { padding: 30 });
-  });
-  // the metro's view, as the map page computes it; a metro too spread out for zoom 7 opens on its center
-  const metroCam = map.cameraForBounds(bounds, { padding: 40, maxZoom: METRO_MAX_ZOOM });
-  const HOME = metroCam && metroCam.zoom >= LOAD_ZOOM + 0.5 ? { center: metroCam.center, zoom: metroCam.zoom }
-    : { center: mrec.center || map.getCenter(), zoom: LOAD_ZOOM + 1 };
-  if (!viewKept) map.jumpTo(HOME);
-  // out to the whole metro and a little more, never closer than a view brought from the map page
-  // out as far as the map page allows; past the metro's scale the national view takes over (Sierra, 2026-11-17: "i
-  // think we can scroll all the way to the national view preferable"; this retires the stop 0.6 below the metro's view)
-  const zLow = Math.min(HOME.zoom - 0.6, map.getZoom());   // still sizes the smallest marks
-  map.setMinZoom(2.5);
-  map.on('zoomend', () => {
-    if (leaving || map.getZoom() >= LOAD_ZOOM) return;
-    leaving = true;
-    const c = map.getCenter();
-    location.href = `routes.html#view=${map.getZoom().toFixed(2)}/${c.lat.toFixed(4)}/${c.lng.toFixed(4)}`;
-  });
-  const firstSymbol = (map.getStyle().layers.find((l) => l.type === 'symbol') || {}).id;
-
-  map.addSource('bg', { type: 'geojson', data: bgfc });
-  map.addLayer({ id: 'bg-jobs', type: 'fill', source: 'bg', paint: { 'fill-color': ['get', 'jfill'], 'fill-opacity': 0.82 } }, firstSymbol);
-  map.addLayer({ id: 'bg-line', type: 'line', source: 'bg',
-    paint: { 'line-color': '#ffffff', 'line-opacity': 0.55, 'line-width': ['interpolate', ['linear'], ['zoom'], 9, 0, 12, 0.4, 15, 1] } }, firstSymbol);
-  map.addLayer({ id: 'bg-hit', type: 'fill', source: 'bg', paint: { 'fill-color': '#000', 'fill-opacity': 0.001 } }, firstSymbol);
-
-  // routes: wider where buses come more often (trips an hour in the busier direction, 7 to 9 a.m.)
-  const w = (k) => ['interpolate', ['linear'], ['get', 'tph_route'], 0.5, 0.9 * k, 1, 1.3 * k, 2, 2 * k, 4, 3.3 * k, 6, 4.6 * k];
-  const zw = (k0, k1, k2) => ['interpolate', ['linear'], ['zoom'], 10, w(k0), 13, w(k1), 16, w(k2)];
-  map.addSource('routes', { type: 'geojson', data: routes });
-  map.addLayer({ id: 'routes-casing', type: 'line', source: 'routes', layout: { 'line-cap': 'round', 'line-join': 'round' },
-    paint: { 'line-color': '#ffffff', 'line-opacity': 0.75,
-             'line-width': ['interpolate', ['linear'], ['zoom'], 10, ['+', 1.4, w(0.8)], 13, ['+', 2, w(1.15)], 16, ['+', 3, w(1.9)]] } }, firstSymbol);
-  map.addLayer({ id: 'routes-line', type: 'line', source: 'routes', filter: ['==', ['get', 'kind'], 'bus'],
-    layout: { 'line-cap': 'round', 'line-join': 'round' },
-    paint: { 'line-color': INK, 'line-opacity': 0.8, 'line-width': zw(0.8, 1.15, 1.9) } }, firstSymbol);
-  map.addLayer({ id: 'routes-tram', type: 'line', source: 'routes', filter: ['!=', ['get', 'kind'], 'bus'],
-    layout: { 'line-cap': 'round', 'line-join': 'round' },
-    paint: { 'line-color': RAIL, 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 2, 13, 3.5, 16, 6] } }, firstSymbol);
-  map.addLayer({ id: 'routes-hi', type: 'line', source: 'routes', filter: ['in', ['get', 'i'], ['literal', []]],
-    layout: { 'line-cap': 'round', 'line-join': 'round' },
-    paint: { 'line-color': ['case', ['==', ['get', 'kind'], 'bus'], INK, RAIL], 'line-opacity': 0.95, 'line-width': zw(0.9, 1.5, 2.4) } }, firstSymbol);
-
-  map.addLayer({ id: 'bg-hover', type: 'line', source: 'bg', filter: ['==', ['get', 'g'], ''],
-    paint: { 'line-color': INK, 'line-width': 1.8, 'line-opacity': 0.9 } });
-  map.addLayer({ id: 'bg-sel-casing', type: 'line', source: 'bg', filter: ['==', ['get', 'g'], ''], paint: { 'line-color': '#ffffff', 'line-width': 8 } });
-  map.addLayer({ id: 'bg-sel', type: 'line', source: 'bg', filter: ['==', ['get', 'g'], ''], paint: { 'line-color': INK, 'line-width': 3.4 } });
-  const empty = { type: 'FeatureCollection', features: [] };
-  map.addSource('selstops', { type: 'geojson', data: empty });
-  map.addLayer({ id: 'selstops', type: 'circle', source: 'selstops',
-    paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 2.2, 15, 5], 'circle-color': '#ffffff',
-             'circle-stroke-color': INK, 'circle-stroke-width': 1.4 } });
-
-  // the vehicles, drawn by deck.gl over the map: each run's fading trail (TripsLayer, the last TRAIL seconds of its
-  // timed points), a ring that pulses outward, and the dot; sizes in pixels follow the zoom as the map's layers did
-  const overlay = new deck.MapboxOverlay({ interleaved: false, layers: [] });
-  map.addControl(overlay);
-  const zl = Math.min(zLow, 9.9);
-  const lerpZ = (z, stops) => {               // piecewise-linear in zoom, clamped at the ends
-    if (z <= stops[0][0]) return stops[0][1];
-    for (let k = 1; k < stops.length; k++) {
-      if (z <= stops[k][0]) { const [z0, v0] = stops[k - 1], [z1, v1] = stops[k]; return v0 + ((z - z0) / (z1 - z0)) * (v1 - v0); }
-    }
-    return stops[stops.length - 1][1];
-  };
-  const YELLOW = [255, 198, 26], BLUE = [17, 86, 151], INKRGB = [29, 32, 39], AMBER = [217, 154, 0];
-
-  function at(tr, s) {
-    const t = tr.t;
-    let lo = 0, hi = t.length - 1;
-    if (s <= t[0]) return [tr.lon[0], tr.lat[0], 0];
-    if (s >= t[hi]) return [tr.lon[hi], tr.lat[hi], hi];
-    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (t[m] <= s) lo = m; else hi = m; }
-    const f = t[hi] > t[lo] ? (s - t[lo]) / (t[hi] - t[lo]) : 0;
-    return [tr.lon[lo] + f * (tr.lon[hi] - tr.lon[lo]), tr.lat[lo] + f * (tr.lat[hi] - tr.lat[lo]), lo];
-  }
-  const show = { bus: true, rail: true, routes: true };
-  function draw(clockSec) {
-    // each vehicle in service now, and its trail: only its last TRAIL seconds of points, rebuilt each frame (the
-    // whole day's paths, about a million points in Chicago, ran it at 7 frames a second)
-    const pts = [], tails = [];
-    trips.forEach((tr, i) => {
-      if (T < tr.t0 || T > tr.t1) return;
-      if (sel && !sel.trips.has(i)) return;
-      if (tr.kind ? !show.rail : !show.bus) return;   // buses, rail, or both
-      const [x, y, lo] = at(tr, T);
-      pts.push({ pos: [x, y], p: (clockSec / 1.7 + tr.phase) % 1, k: tr.kind });
-      const sa = Math.max(T - TRAIL, tr.t0);
-      if (sa < T) {
-        const [ax, ay, alo] = at(tr, sa);
-        const path = [ax, ay], ts = [sa];
-        for (let k = alo + 1; k <= lo; k++) { path.push(tr.lon[k], tr.lat[k]); ts.push(tr.t[k]); }
-        path.push(x, y); ts.push(T);
-        tails.push({ path, ts, kind: tr.kind });
-      }
-    });
-    const z = map.getZoom();
-    const rDot = lerpZ(z, [[zl, 1.8], [10, 2.8], [13, 4.2], [16, 6.5]]);
-    const rMin = lerpZ(z, [[zl, 1.5], [10, 2.5], [14, 4.5]]), rMax = lerpZ(z, [[zl, 6], [10, 12], [14, 24]]);
-    const wTrail = lerpZ(z, [[zl, 0.9], [10, 1.6], [13, 3], [16, 5.5]]);
-    overlay.setProps({ layers: [
-      new deck.TripsLayer({ id: 'trails', data: tails, positionFormat: 'XY',
-        getPath: (d) => d.path, getTimestamps: (d) => d.ts, getColor: (d) => (d.kind ? BLUE : YELLOW),
-        widthUnits: 'pixels', getWidth: wTrail, capRounded: true, jointRounded: true, opacity: 0.85,
-        trailLength: TRAIL, currentTime: T, fadeTrail: true, updateTriggers: { getWidth: wTrail } }),
-      // the rings pulse only while the clock runs, so a paused map is still
-      new deck.ScatterplotLayer({ id: 'ping', data: playing ? pts : [], getPosition: (d) => d.pos,
-        radiusUnits: 'pixels', getRadius: (d) => rMin + d.p * (rMax - rMin), stroked: true, filled: true,
-        getFillColor: (d) => [...(d.k ? BLUE : YELLOW), Math.round(40 * (1 - d.p))],
-        getLineColor: (d) => [...(d.k ? BLUE : AMBER), Math.round(215 * (1 - d.p))],
-        lineWidthUnits: 'pixels', getLineWidth: 1.8 }),
-      new deck.ScatterplotLayer({ id: 'dot', data: pts, getPosition: (d) => d.pos,
-        radiusUnits: 'pixels', getRadius: rDot, stroked: true, getFillColor: (d) => (d.k ? BLUE : YELLOW),
-        getLineColor: (d) => (d.k ? [255, 255, 255] : INKRGB), lineWidthUnits: 'pixels', getLineWidth: 1.2,
-        updateTriggers: { getRadius: rDot } }),
-    ] });
-    document.getElementById('nbus').textContent = fmt.format(pts.length);
-    document.getElementById('nbus-label').textContent = sel ? 'shown' : 'in service';
-  }
-  const clockEl = document.getElementById('clock'), ampmEl = document.getElementById('ampm'), scrub = document.getElementById('scrub');
-  function showClock() {                      // the clock steps by 3 minutes, once a second at this speed
-    const m = Math.floor(T / 180) * 3, h = Math.floor(m / 60), mm = m % 60;
-    clockEl.textContent = `${((h + 11) % 12) + 1}:${String(mm).padStart(2, '0')}`;
-    ampmEl.textContent = h < 12 ? 'a.m.' : 'p.m.';
-    scrub.value = T;
-  }
-  let last = null;
-  function frame(now) {
-    if (last === null) last = now;
-    const dt = Math.min(0.1, (now - last) / 1000);
-    last = now;
-    if (playing) { T += dt * SPEED; if (T > T1) T = T0; }
-    draw(now / 1000);
-    showClock();
-    requestAnimationFrame(frame);
-  }
-  requestAnimationFrame(frame);
-
-  // ---------- the key, the scale at the bottom ----------
-  const anyRail = hasRail || hasFerry;
-  const other = hasRail && hasFerry ? 'rail or ferry' : hasRail ? 'rail' : 'ferry';
-  document.getElementById('key').innerHTML = `
-    <svg width="54" height="22" aria-hidden="true"><circle cx="27" cy="11" r="9" fill="none" stroke="#d99a00" stroke-opacity="0.6"/><circle cx="27" cy="11" r="4.2" fill="#ffc61a" stroke="#1d2027" stroke-width="1.2"/></svg>
-    <span>A bus on its schedule${anyRail ? ` (blue: ${other})` : ''}</span>
-    <svg width="54" height="22" aria-hidden="true"><line x1="2" y1="6" x2="52" y2="6" stroke="#1d2027" stroke-width="4.5" stroke-linecap="round"/><line x1="2" y1="16" x2="52" y2="16" stroke="#1d2027" stroke-width="1.3" stroke-linecap="round"/></svg>
-    <span>Wider lines: more buses, 7 to 9 a.m.</span>`;
-  if (!anyRail) document.getElementById('t-rail-label').hidden = true;
-  document.getElementById('t-rail-text').textContent = hasRail && hasFerry ? 'Rail and ferries' : hasRail ? 'Rail' : 'Ferries';
-
-  // ---------- About these routes: plain points under a few headers (Sierra, 2026-11-17: "simplify the about these
-  // routes, maybe bullet points"; "simpler nad technical language"; "i dont like the bold with periods in the about.
-  // just sort it into relevent headers and keep it simple, no signposting") ----------
-  const day = `${meta.weekday}, ${meta.month} ${Number(meta.route_date.slice(8))}, ${meta.year}`;
-  const agList = ag.length > 1 ? `${ag.slice(0, -1).join(', ')} and ${ag[ag.length - 1]}` : ag[0];
-  const sections = [
-    ['Schedules', [
-      meta.runs ? `${agList}, from GTFS files in the Transitland and Mobility Database archives.` : null,
-      meta.runs ? `${day}, the latest date behind the Access map's ${meta.map_year} values on which every schedule file runs trips.`
-        : `${day}, the date behind the Access map's ${meta.map_year} values.`,
-      meta.runs ? 'Vehicles are placed by their scheduled stop times, not live locations, and move along their routes between stops.' : null,
-      meta.runs ? 'The clock runs from 6:30 to 9:30 a.m., at 3 minutes of schedule per second.' : null,
-    ]],
-    ['Map', [
-      meta.runs ? "Each route's line is its most common path in each direction, wider with more trips from 7 to 9 a.m. in the busier direction." : null,
-      `The green shading shows jobs per square mile of land, counted at the workplace (LODES ${meta.jobs_year}).`,
-    ]],
-    ['Selected block group', [
-      meta.runs ? 'Only the vehicles that stop within 400 meters (a 5-minute walk) are shown.' : null,
-      'Jobs within 30 minutes by public transit and by car with no traffic, as on the Access map.',
-    ]],
-    ['Credits', ['Street map &copy; OpenStreetMap contributors.', 'Basemap by OpenFreeMap and OpenMapTiles.', 'Vehicles drawn with deck.gl.']],
-  ];
-  document.getElementById('about-body').innerHTML = `
-    ${meta.note ? `<p class="note">${meta.note}</p>` : ''}
-    ${sections.map(([h, items]) => `<h3>${h}</h3><ul class="about-list">${items.filter(Boolean).map((t) => `<li>${t}</li>`).join('')}</ul>`).join('')}`;
-  const about = document.getElementById('about'), contact = document.getElementById('contact');
-  document.getElementById('about-open').addEventListener('click', () => about.showModal());
-  document.getElementById('contact-open').addEventListener('click', () => contact.showModal());
-  // a click on the dimmed area behind a window closes it, as on the map's page
-  for (const d of [about, contact]) {
-    let pressed = false;
-    const outside = (e) => { const r = d.getBoundingClientRect(); return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom; };
-    d.addEventListener('pointerdown', (e) => { pressed = e.target === d && outside(e); });
-    d.addEventListener('click', (e) => { if (pressed && e.target === d && outside(e)) d.close(); pressed = false; });
-  }
-  const kfmt = (v) => (v >= 1000 ? `${fmt.format(v / 1000)}k` : fmt.format(v));
-  document.getElementById('legend').innerHTML = `
-    <div class="lg-title">Jobs per square mile, ${meta.jobs_year}</div>
-    <div class="lg-bar">${greens.map((c) => `<span style="background:${c}"></span>`).join('')}</div>
-    <div class="lg-ticks">${jb.map((b, i) => `<span style="left:${((i + 1) / greens.length) * 100}%">${kfmt(b)}</span>`).join('')}</div>
-    <div class="lg-ends"><span>Fewer jobs</span><span>More jobs</span></div>`;
-  const vis = (ids, on) => ids.forEach((id) => map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none'));
-
-  // ---------- picking a block group: only the buses that stop within a 5-minute walk ----------
-  const tractLabel = (c) => { const n = parseInt(c.slice(0, 4), 10), s = c.slice(4); return s === '00' ? `${n}` : `${n}.${s}`; };
-  // the map page's card for a block group (app.js, blockGroupHTML): the same rows, ratio and notes, for jobs at 30 minutes
-  const ratioText = (r) => (r >= 10 ? fmt.format(Math.round(r)) : r.toFixed(1));
-  const has = (v) => v !== null && v !== undefined && !Number.isNaN(v);
-  const inMetro = (x) => (x === 0 ? `The lowest in the ${city} metro` : `Higher than ${x}% of block groups in the ${city} metro`);
-  const jobsRow = (label, v, pct, missing) => (!has(v)
-    ? `<div class="row"><div class="row-top"><span class="row-label">${label}</span>
-        <span class="row-value na">Not available</span></div><div class="row-note">${missing}</div></div>`
-    : `<div class="row"><div class="row-top"><span class="row-label">${label}</span><span class="row-value">${fmt.format(v)}</span></div>
-        ${has(pct) ? `<div class="gauge" aria-hidden="true"><span class="med"></span><span class="mark" style="left:${Math.min(100, Math.max(0, pct))}%"></span></div>
-        <div class="gauge-labels" aria-hidden="true"><span>Lowest</span><span>Median</span><span>Highest</span></div>` : ''}
-        <div class="row-note">${has(pct) ? inMetro(pct) : ''}</div></div>`);
-  const hint = document.getElementById('clickhint');
-  function bboxOf(geom) {
-    let w0 = 180, s0 = 90, e0 = -180, n0 = -90;
-    const walk = (c) => { if (typeof c[0] === 'number') { w0 = Math.min(w0, c[0]); e0 = Math.max(e0, c[0]); s0 = Math.min(s0, c[1]); n0 = Math.max(n0, c[1]); } else c.forEach(walk); };
-    walk(geom.coordinates);
-    return [[w0, s0], [e0, n0]];
-  }
-  let selTag = null;
-  function setSelTag(lngLat) {
-    if (selTag) { selTag.remove(); selTag = null; }
-    if (!lngLat) return;
-    const el = document.createElement('div');
-    el.className = 'seltag'; el.textContent = 'Selected';
-    selTag = new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, -4] }).setLngLat(lngLat).addTo(map);
-  }
-  // the runs that stop within a 5-minute walk of a block group, its stops, its routes, and its stops by buses 7 to 9 a.m.
-  const servingCache = new Map();
-  function serving(g) {
-    if (servingCache.has(g)) return servingCache.get(g);
-    const S = new Set(bgstops[g] || []);
-    const serve = new Set(), routesSet = new Set();
-    let peak = 0;
-    calls.forEach((c, i) => {
-      let hit = false, inPeak = false;
-      for (let k = 0; k < c.length; k += 2) if (S.has(c[k])) { hit = true; if (c[k + 1] >= P0 && c[k + 1] < P1) inPeak = true; }
-      if (hit) { serve.add(i); routesSet.add(trips[i].r); }
-      if (inPeak) peak += 1;
-    });
-    const out = { trips: serve, routes: [...routesSet], stops: [...S], peak };
-    servingCache.set(g, out);
-    return out;
-  }
-  // the card for a block group: the one under the pointer, or the selected one, as on the map page
-  function cardHTML(g, pinned) {
-    const sv = serving(g);
-    const p = bgByG.get(g) || {};
-    const names = sv.routes.map((r) => meta.routes[r]).sort((a, b) => (a.agency === b.agency
-      ? (a.name || a.long).localeCompare(b.name || b.long, 'en', { numeric: true }) : a.agency.localeCompare(b.agency)));
-    const byAgency = {};
-    names.forEach((r) => { (byAgency[r.agency] = byAgency[r.agency] || []).push(r.name || r.long); });
-    const gap = sv.peak > 0 ? 120 / sv.peak : 0;
-    const every = sv.peak > 0 ? `About one every ${gap < 1.5 ? `${Math.round(gap * 60)} seconds` : `${Math.round(gap)} minutes`}. ` : '';
-    // the car-to-transit ratio, as the map page computes it
-    const r = p.t > 0 && has(p.c) ? p.c / p.t : null;
-    let rv = null, rn;
-    if (r !== null) {
-      rv = `${ratioText(r)}&times;`;
-      rn = r >= 1 ? `A car reaches ${ratioText(r)} times as many jobs as public transit.` : 'Public transit reaches more jobs than a car here.';
-    } else if (p.t === 0 && has(p.c) && p.c > 0) {
-      rv = 'None by public transit';
-      rn = `Public transit reaches none within 30 minutes; a car reaches ${fmt.format(p.c)}.`;
-    } else if (p.t === 0) {
-      rn = 'Neither mode reaches any jobs within 30 minutes.';
-    } else {
-      rn = 'This needs both a public transit and a car value.';
-    }
-    const where = sv.stops.length === 0 ? 'No stop within a 5-minute walk.'
-      : `${every}${pinned ? `The white ${sv.stops.length === 1 ? 'dot is the stop' : 'dots are the stops'} within a 5-minute walk. ` : ''}Routes: ${Object.entries(byAgency).map(([a, l]) => `<b>${a}</b> ${l.join(', ')}`).join('; ')}`;
-    return `
-      <div class="card card-bg">
-        <div class="card-head">
-          <span class="level level-bg">Block group</span>
-          <div class="place">Block group ${g.slice(11)}, tract ${tractLabel(g.slice(5, 11))}, ${STATES[g.slice(0, 2)] || ''}</div>
-          <div class="kicker">${meta.short}</div>
-          ${pinned ? '<button type="button" class="unpin" id="sel-x" aria-label="Clear the selected block group">&times;</button>' : ''}
-        </div>
-        <div class="nb-row"><span>Jobs here, ${meta.jobs_year}</span><strong>${p.jobs == null ? 'No value' : fmt.format(p.jobs)}</strong></div>
-        <div class="section-title">Jobs within 30 minutes</div>
-        ${jobsRow('By public transit', p.t, p.tp, 'No public transit value for this block group.')}
-        ${jobsRow('By car, no traffic', p.c, p.cp, 'No car value for this block group.')}
-        <div class="row"><div class="row-top"><span class="row-label">Car vs. public transit</span>
-          ${rv ? `<span class="row-value${r !== null ? '' : ' na'}">${rv}</span>` : '<span class="row-value na">No value</span>'}</div>
-          <div class="row-note">${rn}</div></div>
-        <div class="section-title">Buses</div>
-        <div class="nb-row"><span>Buses stopping nearby, 7 to 9 a.m.</span><strong>${fmt.format(sv.peak)}</strong></div>
-        <div class="sel-routes">${where}</div>
-      </div>`;
-  }
-  // the panel shows the block group under the pointer, else the selected one, else the call to select one
-  let hoverG = '';
-  function renderCard() {
-    const el = document.getElementById('sel');
-    const g = hoverG || (sel ? sel.g : '');
-    // one way back, in one place, hovering or not (Sierra, 2026-11-17: "when youre mousing over blocks the back to
-    // national map disappears"): to the whole metro while a block group is selected, else out to the country
-    document.getElementById('to-national').innerHTML = sel ? `&lsaquo; Back to all of ${city}` : '&lsaquo; Back to the national map';
-    if (!g) { el.classList.remove('on'); el.innerHTML = ''; hint.classList.remove('off'); return; }
-    el.innerHTML = cardHTML(g, !!sel && sel.g === g);
-    el.classList.add('on');
-    hint.classList.add('off');
-  }
-  document.getElementById('sel').addEventListener('click', (e) => {
-    if (e.target.closest('#sel-x')) unpick();   // the map page's clear button: the block group goes, the view stays
-  });
-  // the selected block group in the address, as "bg=" beside the view that MapLibre writes, as on the map page
-  function writeBg(g) {
-    const parts = location.hash.replace(/^#/, '').split('&').filter((x) => x && !x.startsWith('bg='));
-    if (g) parts.push(`bg=${g}`);
-    history.replaceState(history.state, '', `${location.pathname}${location.search}${parts.length ? `#${parts.join('&')}` : ''}`);
-  }
-  function pick(g) {
-    const sv = serving(g);
-    writeBg(g);
-    sel = { g, trips: sv.trips, routes: sv.routes, stops: sv.stops };
-    map.setFilter('bg-sel', ['==', ['get', 'g'], g]);
-    map.setFilter('bg-sel-casing', ['==', ['get', 'g'], g]);
-    applyRouteVis();
-    map.setPaintProperty('routes-line', 'line-opacity', 0.14);
-    map.setPaintProperty('routes-tram', 'line-opacity', 0.25);
-    map.getSource('selstops').setData({ type: 'FeatureCollection', features: sel.stops
-      .filter((k) => stops.xy[k]).map((k) => ({ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: stops.xy[k] } })) });
-    map.setPaintProperty('bg-jobs', 'fill-opacity', ['case', ['==', ['get', 'g'], g], 0.95, 0.3]);
-    const feat = bgFeat.get(g);
-    if (feat) { const b = bboxOf(feat.geometry); setSelTag([(b[0][0] + b[1][0]) / 2, b[1][1]]); }
-    renderCard();
-  }
-  function unpick(home = false) {
-    sel = null;
-    writeBg('');
-    map.setPaintProperty('bg-jobs', 'fill-opacity', 0.82);
-    setSelTag(null);
-    if (home) map.flyTo({ ...HOME, duration: 900 });
-    map.setFilter('bg-sel', ['==', ['get', 'g'], '']);
-    map.setFilter('bg-sel-casing', ['==', ['get', 'g'], '']);
-    applyRouteVis();
-    map.setPaintProperty('routes-line', 'line-opacity', 0.8);
-    map.setPaintProperty('routes-tram', 'line-opacity', 1);
-    map.getSource('selstops').setData(empty);
-    renderCard();
-  }
-  map.on('click', (e) => {
-    const f = map.queryRenderedFeatures(e.point, { layers: ['bg-hit'] })[0];
-    if (!f) { unpick(); return; }
-    if (sel && sel.g === f.properties.g) { unpick(true); return; }
-    pick(f.properties.g);
-    // zoom in a little when the map is zoomed out, keeping the clicked spot under the pointer, as on the map page
-    if (map.getZoom() < CLICK_ZOOM - 0.5) map.easeTo({ zoom: CLICK_ZOOM, around: e.lngLat, duration: 600 });
-  });
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && sel) unpick(true); });
-
-  // ---------- the other controls ----------
-  const play = document.getElementById('play');
-  const ICON_PAUSE = '<svg width="10" height="11" viewBox="0 0 10 11" aria-hidden="true"><rect x="1" y="0.5" width="3" height="10" rx="0.6" fill="currentColor"/><rect x="6" y="0.5" width="3" height="10" rx="0.6" fill="currentColor"/></svg>';
-  const ICON_PLAY = '<svg width="10" height="11" viewBox="0 0 10 11" aria-hidden="true"><path d="M1.5 0.8v9.4l7.6-4.7z" fill="currentColor"/></svg>';
-  const setPlaying = (v) => { playing = v; play.innerHTML = v ? `${ICON_PAUSE}Pause` : `${ICON_PLAY}Play`; };
-  setPlaying(playing);                        // shows Play when the page opened paused (reduced motion)
-  play.addEventListener('click', () => setPlaying(!playing));
-  document.addEventListener('keydown', (e) => { if (e.code === 'Space' && !['INPUT', 'SELECT'].includes(e.target.tagName)) { e.preventDefault(); setPlaying(!playing); } });
-  scrub.addEventListener('input', () => { T = Number(scrub.value); });
-  // route lines by kind, as the Buses, Rail and Routes boxes say (the vehicles follow the same boxes in draw())
-  function applyRouteVis() {
-    const kf = show.bus && show.rail ? null : show.bus ? ['==', ['get', 'kind'], 'bus']
-      : show.rail ? ['!=', ['get', 'kind'], 'bus'] : ['==', ['get', 'kind'], '-'];
-    const hiBase = ['in', ['get', 'i'], ['literal', sel ? sel.routes : []]];
-    map.setFilter('routes-casing', kf);
-    map.setFilter('routes-hi', kf ? ['all', hiBase, kf] : hiBase);
-    vis(['routes-casing', 'routes-hi'], show.routes);
-    vis(['routes-line'], show.routes && show.bus);
-    vis(['routes-tram'], show.routes && show.rail);
-  }
-  document.getElementById('t-bus').addEventListener('change', (e) => { show.bus = e.target.checked; applyRouteVis(); });
-  document.getElementById('t-rail').addEventListener('change', (e) => { show.rail = e.target.checked; applyRouteVis(); });
-  document.getElementById('t-route').addEventListener('change', (e) => { show.routes = e.target.checked; applyRouteVis(); });
-  // the switch back to the map keeps the view and the selected block group, and skips the map's welcome window
-  // (Sierra, 2026-11-17, on keeping the selection across the tabs: "Yes, 1 to 4")
-  document.getElementById('to-access').addEventListener('click', (e) => {
-    const v = (location.hash.match(/view=[^&]+/) || [''])[0];
-    const parts = [v, sel ? `bg=${sel.g}` : ''].filter(Boolean);
-    e.currentTarget.href = `index.html?from=routes${parts.length ? `#${parts.join('&')}` : ''}`;
-  });
-
-  // ---------- the address search, as on the map page: a place in this metro selects its block group; a place in
-  // another metro opens that metro's routes there ----------
-  const setStatus = (msg) => { document.getElementById('status').textContent = msg; };
-  const metroAt = (lng, lat) => {                   // the smallest metro box holding the place, as on the map page
-    const area = (m) => (m.bbox[2] - m.bbox[0]) * (m.bbox[3] - m.bbox[1]);
-    return metros.filter((m) => have.has(m.slug) && inBox(m.bbox, lng, lat)).sort((a, b) => area(a) - area(b))[0] || null;
-  };
-  document.getElementById('search').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const q = document.getElementById('q').value.trim();
-    if (!q) return;
-    setStatus('Searching…');
-    try {
-      const url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=us&q=' + encodeURIComponent(q);
-      const res = await fetch(url, { headers: { Accept: 'application/json' } });
-      if (!res.ok) throw new Error(`search: HTTP ${res.status}`);
-      const hits = await res.json();
-      if (!hits.length) { setStatus('No match found.'); return; }
-      const lng = Number(hits[0].lon), lat = Number(hits[0].lat);
-      const m = metroAt(lng, lat);
-      if (!m) { setStatus('That place is outside the mapped metros.'); return; }
-      if (m.slug !== slug) { location.href = `routes.html?metro=${m.slug}#view=${SEARCH_ZOOM}/${lat.toFixed(5)}/${lng.toFixed(5)}`; return; }
-      setStatus('');
-      map.flyTo({ center: [lng, lat], zoom: SEARCH_ZOOM });
-      map.once('moveend', () => {
-        const f = map.queryRenderedFeatures(map.project([lng, lat]), { layers: ['bg-hit'] })[0];
-        if (f) pick(f.properties.g); else setStatus('No block group at that spot.');
-      });
-    } catch (err) {
-      console.error(err);
-      setStatus('Search is not available right now.');
-    }
-  });
-
-  // a label at the pointer: a route, or the block group under it and what selecting it does
-  const tip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, className: 'bg-tip', offset: 14, maxWidth: '280px' });
-  const setHover = (g) => { if (g !== hoverG) { hoverG = g; map.setFilter('bg-hover', ['==', ['get', 'g'], g]); renderCard(); } };
-  map.on('mousemove', (e) => {
-    const layers = ['routes-hi', 'routes-line', 'routes-tram', 'bg-hit'].filter((id) => map.getLayoutProperty(id, 'visibility') !== 'none');
-    const f = map.queryRenderedFeatures(e.point, { layers });
-    const r = f.find((x) => x.layer.id.startsWith('routes'));
-    const b = f.find((x) => x.layer.id === 'bg-hit');
-    const g = b ? b.properties.g : '';
-    setHover(g);
-    map.getCanvas().style.cursor = g ? 'pointer' : '';
-    let html = null;
-    if (r) {
-      const p = r.properties, n = Math.round(p.tph_route * 2);
-      const every = p.tph_route >= 1 ? `, about every ${Math.round(60 / p.tph_route)} minutes` : '';
-      html = `${p.agency} ${p.name || ''}${p.long ? ` &middot; ${p.long}` : ''}<span>${n} ${n === 1 ? 'trip' : 'trips'} from 7 to 9 a.m. in its busier direction${every}</span>`;
-    } else if (g) {
-      const p = bgByG.get(g) || {};
-      const act = sel && sel.g === g ? `Select again to go back to all of ${city}` : 'Select to see its nearby buses';
-      html = `${p.jobs == null ? 'No' : fmt.format(p.jobs)} jobs in this block group<span>${p.dens == null ? '' : `${fmt.format(p.dens)} per square mile, `}${meta.jobs_year}</span><span class="act">${act}</span>`;
-    }
-    if (html) tip.setLngLat(e.lngLat).setHTML(html).addTo(map); else tip.remove();
-  });
-  map.getCanvas().addEventListener('mouseleave', () => { tip.remove(); setHover(''); map.getCanvas().style.cursor = ''; });
-
-  // a block group selected in the address ("bg=", as the map page writes it, from its tab or a shared link)
-  const hb = (location.hash.match(/(?:^#|&)bg=(\d{12})/) || [])[1];
-  if (hb && bgByG.has(hb)) pick(hb);
-})().catch((err) => {
-  const l = document.getElementById('loading');
-  if (l) l.textContent = `This metro's schedules could not be loaded (${err.message}).`;
-  console.error(err);
-});
-</script>
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="app.js?v=01aca6852a"></script>
 </body>
 </html>
