@@ -340,6 +340,7 @@
 
   // ---------- the cards ----------
   const shortName = (name) => name.split(/[-,/]/)[0].trim();
+  const noteHTML = (slug) => { const n = S.notes && S.notes.get(slug); return n ? `<p class="note">${esc(n)}</p>` : ''; };
   // Each metro is named by its largest city and first state, "Seattle, WA" for Seattle-Tacoma-Bellevue, WA: in the
   // menu since 2026-11-13 (Sierra: "Yes, shorten them"), and in the cards, labels and messages since 2026-11-17
   // (Sierra: "its weird that the metro overview still has the hyphenated name"; the cards had kept the full name).
@@ -442,9 +443,12 @@
     }
     const near = jobs ? '' : `<div class="nb-row near"><span>Nearest ${L.one} by public transit</span>
         <strong>${!has(p[k('n')]) ? 'None within 90 minutes' : p[k('n')] === 0 ? 'In this block group' : `${p[k('n')]} minutes`}</strong></div>`;
-    // the way back to the whole metro, as on the routes page (Sierra, 2026-11-17: "the access tab should have the same
-    // back button")
-    return `${isPinned ? `<button type="button" class="back back-metro">&lsaquo; Back to all of ${esc(metro)}</button>` : ''}
+    // a way back, always (Sierra, 2026-11-17: "the access tab should have the same back button"; "when youre mousing
+    // over blocks the back to national map disappears"): to the metro while a block group is kept, else to the country
+    const kept = S.pinnedProps && S.bySlug.get(S.pinnedProps.m);
+    const back = kept ? `<button type="button" class="back back-metro">&lsaquo; Back to all of ${esc(shortName(kept.name))}</button>`
+      : '<button type="button" class="back back-national">&lsaquo; Back to the national map</button>';
+    return `${back}${noteHTML(p.m)}
       <div class="card card-bg">
       <div class="card-head">
         <span class="level level-bg">Block group</span>
@@ -527,7 +531,7 @@
     const extra = jobs ? '' : `<p class="facts">${sv.reach}% of block groups reach at least one ${L.one} by public transit within
       ${S.tau} minutes. ${has(sm.near) ? `Where one is within 90 minutes, the median trip to the nearest takes ${sm.near} minutes.`
       : `No block group has one within 90 minutes by public transit.`}</p>`;
-    return `${back}<div class="card card-metro">
+    return `${back}${noteHTML(m.slug)}<div class="card card-metro">
       <div class="card-head"><span class="level level-metro">Metro overview</span>
         <div class="place">${esc(menuName(m.name))}</div></div>
       <div class="section-title">${L.label} within ${S.tau} minutes, median block group</div>
@@ -802,8 +806,36 @@
     unpin();
   }
 
-  const overDot = (point) => map.getLayer('metro-dots') && map.getZoom() < DOTS_UNTIL
-    && map.queryRenderedFeatures(point, { layers: ['metro-dots'] }).length > 0;
+  // The national circles answer a pointer near them, not only one on them (Sierra, 2026-11-17: "the tiny circles are
+  // kind of hard to click, can you loosen the precision or something so if you click near it still opens"). A pointer
+  // on a circle takes that circle, as before; one within NEAR_PX of a circle's edge (NEAR_TOUCH_PX on a touch screen)
+  // takes the nearest circle. Only below LOAD_ZOOM: above it the block groups are drawn and keep the pointer beside a
+  // circle. A circle takes precedence over the block groups under it.
+  const NEAR_PX = 8;
+  const NEAR_TOUCH_PX = 14;
+  const coarse = window.matchMedia('(pointer: coarse)');
+  // a circle's radius in pixels as the 'metro-dots' layer draws it (3 + 6 size at zoom 3, 5 + 10 size at zoom 7), plus
+  // its 1.25 px outline
+  const dotRadius = (z, size) => 3 + 6 * size + Math.min(1, Math.max(0, (z - 3) / 4)) * (2 + 4 * size) + 1.25;
+  function dotAt(point) {   // the metro whose circle is under or near the pointer, or null
+    if (!map.getLayer('metro-dots') || map.getZoom() >= DOTS_UNTIL) return null;
+    const on = map.queryRenderedFeatures(point, { layers: ['metro-dots'] });
+    if (on.length) return S.bySlug.get(on[0].properties.slug) || null;
+    if (map.getZoom() >= LOAD_ZOOM) return null;
+    const tol = coarse.matches ? NEAR_TOUCH_PX : NEAR_PX;
+    const z = map.getZoom();
+    let best = null;
+    let bestD = Infinity;
+    const box = [[point.x - tol, point.y - tol], [point.x + tol, point.y + tol]];
+    for (const f of map.queryRenderedFeatures(box, { layers: ['metro-dots'] })) {
+      const m = S.bySlug.get(f.properties.slug);
+      if (!m) continue;
+      const c = map.project(m.center);
+      const d = Math.hypot(c.x - point.x, c.y - point.y) - dotRadius(z, f.properties.size);
+      if (d <= tol && d < bestD) { best = m; bestD = d; }
+    }
+    return best;
+  }
 
   function goToMetro(m) {
     showMetro();
@@ -1046,6 +1078,12 @@
     applyHash();
     setTauControl();
   });
+  // The six metros whose schedule files leave out their main public transit or run none: the routes index carries the
+  // map page's wording (Sierra, 2026-11-17, asked "Add the six gap notes to the Access page?": "Yes, add notes").
+  getJSON('data/routes/index.json').then((rx) => {
+    S.notes = new Map(rx.filter((x) => x.access_note).map((x) => [x.slug, x.access_note]));
+    renderCard();
+  }).catch((err) => console.warn(err));
 
   map.on('load', async () => {
     try {
@@ -1084,24 +1122,34 @@
       } });
 
     const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 10 });
-    map.on('mousemove', 'metro-dots', (e) => {
-      const m = S.bySlug.get(e.features[0].properties.slug);
+    // A pointer on or near a circle (dotAt) shows its label and the metro as a whole; a click flies to the metro.
+    let onDot = false;
+    const leaveDot = () => {
+      if (!onDot) return;
+      onDot = false;
+      map.getCanvas().style.cursor = '';
+      popup.remove();
+      S.hoverMetro = null;
+      renderCard();
+    };
+    map.on('mousemove', (e) => {
+      const m = dotAt(e.point);
+      if (!m) { leaveDot(); return; }
+      onDot = true;
       map.getCanvas().style.cursor = 'pointer';
       popup.setLngLat(m.center)
         .setHTML(`<strong>${esc(menuName(m.name))}</strong>Median block group, ${S.tau} minutes: ${medianText(m)}.<br>Click to zoom in.`)
         .addTo(map);
       if (S.hoverMetro !== m) { S.hoverMetro = m; renderCard(); }   // the panel shows the metro as a whole
     });
-    map.on('mouseleave', 'metro-dots', () => {
-      map.getCanvas().style.cursor = '';
+    map.on('mouseout', leaveDot);
+    map.on('click', (e) => {
+      const m = dotAt(e.point);
+      if (!m) return;
+      onDot = false;
       popup.remove();
       S.hoverMetro = null;
-      renderCard();
-    });
-    map.on('click', 'metro-dots', (e) => {
-      popup.remove();
-      S.hoverMetro = null;
-      goToMetro(S.bySlug.get(e.features[0].properties.slug));
+      goToMetro(m);
     });
 
     // A small label at the pointer with the block group's value (Sierra, 2026-11-12).
@@ -1123,7 +1171,7 @@
     map.on('mousemove', 'bg-fill', (e) => {
       const f = e.features && e.features[0];
       if (!f) return;
-      if (overDot(e.point)) {   // a metro circle sits on top: the panel shows that metro
+      if (dotAt(e.point)) {     // a metro circle sits on top or close by: the panel shows that metro
         tip.remove();
         if (S.hover !== null) { clearHover(); renderCard(); }
         return;
@@ -1152,7 +1200,7 @@
     });
     map.on('click', 'bg-fill', (e) => {
       const f = e.features && e.features[0];
-      if (!f || overDot(e.point)) return;
+      if (!f || dotAt(e.point)) return;
       S.hold = null;
       choose(f.id, f.properties);
       // Zoom in a little when the map is zoomed out (Sierra, 2026-11-12), keeping the clicked spot under the pointer.

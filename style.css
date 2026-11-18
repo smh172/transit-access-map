@@ -315,13 +315,18 @@ dialog#about .about-glossary dd { margin: 0 0 0 14px; }
 .btn-cmp:hover { background: color-mix(in srgb, var(--accent) 8%, #fff); }
 .btn-cmp:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .cmp-stop { display: inline-block; margin-top: 6px; font-size: 13px; }
-/* the way back to the whole metro, above a selected block group's card, on both pages (Sierra, 2026-11-17: "the
-   access tab should have the same back button") */
+/* the one way back, above the card on both pages: to the whole metro while a block group is selected, else out to
+   the national map (Sierra, 2026-11-17: "the access tab should have the same back button") */
 .back { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; margin: 10px 0 0;
   padding: 7px 10px; border: 1px solid var(--accent); border-radius: 6px; background: var(--accent); color: #fff;
   font-size: 14px; font-weight: 700; cursor: pointer; }
 .back:hover { background: #0d4a85; }
 .back[hidden] { display: none; }
+/* a metro's note, where its schedule files leave out its main public transit or run none: under the way back and
+   above the card, on both pages */
+.note { margin: 6px 0 0; padding: 8px 10px; border-radius: 8px; background: #fbf1e6; box-shadow: inset 3px 0 0 #b0591f;
+  font-size: 13.5px; line-height: 1.35; }
+.note[hidden] { display: none; }
 .back:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .cmp-note { margin-top: 6px; padding: 6px 8px; border-radius: 6px; font-size: 13px;
   background: color-mix(in srgb, var(--accent) 8%, #fff); }
