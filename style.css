@@ -422,3 +422,32 @@ body[data-tab="routes"] .bg-tip .maplibregl-popup-content span { display: block;
 body[data-tab="routes"] .bg-tip .maplibregl-popup-content span.act { margin-top: 2px; font-weight: 700; color: var(--accent); }
 /* phones: the options sit in the panel, as on the Access tab */
 @media (max-width: 760px) { #r-clock { font-size: 26px; } }
+
+/* ---------- the walkthrough (2026-11-19), in the manner of the Opportunity Atlas's "Get started" window: the page
+   dimmed but for the parts the steps name, each with its number in a ring, and the window over the map ---------- */
+#tour[hidden] { display: none; }
+#tour { position: fixed; inset: 0; z-index: 50; pointer-events: none; }
+.tour-mask { position: absolute; inset: 0; }
+.tour-mask path { fill: rgba(20, 22, 28, 0.45); pointer-events: visiblePainted; cursor: pointer; }
+.tour-badge, .tour-num { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px;
+  border: 2px solid var(--accent); border-radius: 50%; background: #fff; color: var(--accent); font-size: 14px;
+  font-weight: 700; line-height: 1; }
+.tour-badge { position: absolute; transform: translate(-50%, -50%); box-shadow: 0 1px 4px rgba(20, 22, 28, 0.35); }
+.tour-box { position: absolute; pointer-events: auto; max-height: calc(100vh - 32px); overflow: auto; padding: 18px 22px 16px;
+  border-radius: 10px; background: #fff; box-shadow: 0 10px 34px rgba(20, 22, 28, 0.32); }
+.tour-close { position: absolute; top: 8px; right: 10px; border: 0; background: none; font-size: 24px; line-height: 1;
+  color: var(--muted); cursor: pointer; padding: 2px 6px; }
+.tour-kicker { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+.tour-box h2 { margin: 2px 0 6px; font-size: 21px; }
+.tour-lead { margin: 0 0 10px; color: var(--muted); }
+.tour-steps { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 9px; }
+.tour-steps li { display: flex; gap: 10px; align-items: flex-start; }
+.tour-steps .tour-num { flex: none; width: 24px; height: 24px; font-size: 13px; }
+.tour-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.tour-foot .link { font-size: 13.5px; text-align: left; }
+.tour-box.small { left: 12px; right: 12px; top: 50%; transform: translateY(-50%); max-height: calc(100% - 24px); }
+.tour-box.small .tour-foot { flex-direction: column-reverse; align-items: stretch; }
+.tour-box.small .btn-primary { width: 100%; }
+.tour-foot-left { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; }
+.tour-off { display: flex; align-items: center; gap: 6px; font-size: 13.5px; color: var(--muted); cursor: pointer; }
+.tour-off input { margin: 0; accent-color: var(--accent); }

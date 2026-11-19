@@ -1520,6 +1520,180 @@
     else enterRoutes({ how: 'history', fromOther, view });
   });
 
+  // ---------- The walkthrough (Sierra, 2026-11-19: "can we add a walkthrough option that is a popup"; "you can see the
+  // opportunty atlas' maybe"). As the Opportunity Atlas's "Get started" window: one window for the tab shown, listing
+  // its steps, with each step's number drawn beside the part of the page it names and the rest of the page dimmed.
+  // It opens by itself after the welcome window, as the Atlas's opens on entering its map from its front page, and on
+  // a visit that does not open the welcome window, unless "Don't show this again" was checked in this browser
+  // (Sierra, 2026-11-19: "the walkthrough should open automatically i think, i think the opp atlas one does";
+  // "Yes, like the Atlas"); "How to use" in the panel's footer opens it any time.
+  // The highlighted parts stay usable while it is open; a click on the dimmed area, Esc or OK closes it.
+  const TOUR = {
+    access: {
+      name: 'Jobs and essential services',
+      lead: 'Start with a question, such as how many jobs the residents of your neighborhood can reach within 30 minutes by public transit.',
+      steps: [
+        { d: 'Search for an address or choose a metro. On the national map, select a circle to open its metro.', at: ['#search', '#metro'] },
+        { d: 'Choose what the map counts, jobs or one of five services, and whether it shows trips by public transit, by car, or how many times more a car reaches.', at: ['#controls .layers', '#controls .modes'] },
+        { d: 'Move the slider to set the travel time, from 15 to 60 minutes.', at: ['#controls .time'] },
+        { d: 'Keep only the block groups of one income group, a share of households without a car, a race and ethnicity group, or a share below twice the poverty line.', at: ['#controls .filters'] },
+        { d: 'Select a block group to see its counts and census values here, and compare it with another block group.', at: ['#card'] },
+      ],
+    },
+    routes: {
+      name: 'Routes and buses',
+      lead: 'Start with a place, such as where you live or work, and watch its buses and trains on a weekday morning.',
+      steps: [
+        { d: 'Search for an address or choose a metro. On the national map, select a circle to open its metro.', at: ['#search', '#metro'] },
+        { d: 'The buses and trains move on one weekday’s schedules from 6:30 to 9:30 a.m. Pause them, or drag the time.', at: ['#r-options .clock', '#r-options .play-row'] },
+        { d: 'Check or clear the boxes to show or hide the buses, the rail lines and the routes.', at: ['#r-options .toggles'] },
+        { d: 'The greens show jobs per square mile: in a metro, of each block group; on the national map, of each metro’s central business district.', at: ['#legend'] },
+        { d: 'Select a block group to see the buses that stop near it and the jobs it can reach.', at: ['#r-clickhint', '#r-sel'] },
+      ],
+    },
+  };
+  const tour = $('#tour');
+  const tourBox = tour.querySelector('.tour-box');
+  let tourFrame = 0;
+  let tourKey = '';
+  let tourReturn = null;
+
+  // the box around the visible parts of a step (null when none is on screen)
+  function tourRect(sels) {
+    let r = null;
+    sels.forEach((s) => {
+      const el = $(s);
+      if (!el) return;
+      const b = el.getBoundingClientRect();
+      if (!b.width || !b.height) return;
+      r = r ? { left: Math.min(r.left, b.left), top: Math.min(r.top, b.top), right: Math.max(r.right, b.right),
+        bottom: Math.max(r.bottom, b.bottom) } : { left: b.left, top: b.top, right: b.right, bottom: b.bottom };
+    });
+    return r;
+  }
+  function roundRect(x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    return `M${x + r},${y}h${w - 2 * r}a${r},${r} 0 0 1 ${r},${r}v${h - 2 * r}a${r},${r} 0 0 1 ${-r},${r}`
+      + `h${-(w - 2 * r)}a${r},${r} 0 0 1 ${-r},${-r}v${-(h - 2 * r)}a${r},${r} 0 0 1 ${r},${-r}z`;
+  }
+
+  // Lays the walkthrough out over the page as it is now: the holes in the dimming, the numbers, and the window over
+  // the map, between the panel and the map options. Phones get the window alone, centered, over a plain dimming.
+  function layoutTour() {
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    const small = phone.matches;
+    const steps = TOUR[S.tab].steps;
+    const rects = small ? [] : steps.map((s) => tourRect(s.at));
+    const st = $('#stage').getBoundingClientRect();
+    const ctl = controls.parentElement === $('#stage') && !controls.classList.contains('collapsed')
+      ? controls.getBoundingClientRect() : null;
+    const key = [W, H, small, S.tab, st.left, ctl && ctl.left,
+      ...rects.map((r) => (r ? [r.left, r.top, r.right, r.bottom].map(Math.round).join(',') : '-'))].join('|');
+    if (key === tourKey) return;
+    tourKey = key;
+
+    const svg = tour.querySelector('.tour-mask');
+    svg.setAttribute('width', W);
+    svg.setAttribute('height', H);
+    const pad = 4;
+    svg.querySelector('path').setAttribute('d', `M0,0H${W}V${H}H0Z` + rects.filter(Boolean).map((r) =>
+      roundRect(r.left - pad, r.top - pad, r.right - r.left + 2 * pad, r.bottom - r.top + 2 * pad, 8)).join(''));
+
+    const badges = tour.querySelector('.tour-badges');
+    badges.innerHTML = rects.map((r, i) => {
+      if (!r) return '';
+      const x = r.right + 30 < W ? r.right + 16 : r.left - 16;   // beside the part, on its right where there is room
+      const y = r.top + Math.min((r.bottom - r.top) / 2, 20);
+      return `<span class="tour-badge" style="left:${Math.round(x)}px;top:${Math.round(y)}px">${i + 1}</span>`;
+    }).join('');
+
+    tourBox.classList.toggle('small', small);
+    if (small) { tourBox.style.left = tourBox.style.top = tourBox.style.width = ''; return; }
+    const left = st.left + 24;
+    const right = (ctl ? ctl.left : st.right) - 24;
+    const w = Math.min(470, right - left);
+    if (w < 300) {   // too narrow beside the map options: centered on the page
+      const ww = Math.min(470, W - 32);
+      tourBox.style.width = `${ww}px`;
+      tourBox.style.left = `${Math.round((W - ww) / 2)}px`;
+    } else {
+      tourBox.style.width = `${w}px`;
+      tourBox.style.left = `${Math.round(left + (right - left - w) / 2)}px`;
+    }
+    tourBox.style.top = `${Math.round(Math.max(st.top + 24, Math.min(st.top + st.height * 0.14, H - tourBox.offsetHeight - 16)))}px`;
+  }
+  function tourLoop() { layoutTour(); tourFrame = requestAnimationFrame(tourLoop); }   // follows the page as it changes
+
+  function fillTour() {
+    const T = TOUR[S.tab];
+    const other = S.tab === 'access' ? 'routes' : 'access';
+    $('#tour-kicker').textContent = T.name;
+    $('#tour-lead').textContent = T.lead;
+    $('#tour-steps').innerHTML = T.steps.map((s, i) =>
+      `<li><span class="tour-num" aria-hidden="true">${i + 1}</span><div>${s.d}</div></li>`).join('');
+    $('#tour-other').textContent = `How to use the ${TOUR[other].name} tab`;
+    tourKey = '';
+  }
+  function openTour() {
+    if (!tour.hidden) { fillTour(); return; }
+    if (controls.classList.contains('collapsed')) $('#controls-toggle').click();   // its parts are steps
+    tourReturn = document.activeElement;
+    $('#tour-off').checked = tourOff();
+    fillTour();
+    tour.hidden = false;
+    layoutTour();
+    tourFrame = requestAnimationFrame(tourLoop);
+    $('#tour-ok').focus();
+  }
+  function closeTour() {
+    if (tour.hidden) return;
+    cancelAnimationFrame(tourFrame);
+    tour.hidden = true;
+    if (tourReturn && document.contains(tourReturn)) tourReturn.focus();
+    tourReturn = null;
+  }
+  $('#tour-open').addEventListener('click', openTour);
+  $('#tour-ok').addEventListener('click', closeTour);
+  tour.querySelector('.tour-close').addEventListener('click', closeTour);
+  tour.querySelector('.tour-mask path').addEventListener('click', closeTour);
+  $('#tour-other').addEventListener('click', () => {   // the other tab, then its walkthrough
+    const tab = S.tab === 'access' ? 'routes' : 'access';
+    switchTab(tab, tab === 'routes' ? routesHref() : accessHref());
+    fillTour();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (tour.hidden) return;
+    if (e.key === 'Escape') { e.preventDefault(); closeTour(); return; }
+    if (e.key !== 'Tab' || !tourBox.contains(document.activeElement)) return;
+    const f = [...tourBox.querySelectorAll('button, input')];   // Tab cycles through the window's controls
+    const i = f.indexOf(document.activeElement);
+    const j = (i + (e.shiftKey ? -1 : 1) + f.length) % f.length;
+    e.preventDefault();
+    f[j].focus();
+  });
+
+  // "Don't show this again", kept in this browser only; the map works the same if storage is blocked
+  const TOUR_OFF = 'withinreach-tour-off';
+  const tourOff = () => { try { return localStorage.getItem(TOUR_OFF) === '1'; } catch (e) { return false; } };
+  $('#tour-off').addEventListener('change', (e) => {
+    try { if (e.target.checked) localStorage.setItem(TOUR_OFF, '1'); else localStorage.removeItem(TOUR_OFF); } catch (err) {}
+  });
+  // opened by itself: when the welcome window opened at load closes (not for Contact), or at load when it did not
+  // open, except at the address a switch from the routes tab lands on
+  let toContact = false;
+  $('#welcome-contact').addEventListener('click', () => { toContact = true; }, { capture: true });
+  if (!tourOff()) {
+    if (welcome.open) {   // watched through its open attribute, which every way of closing it removes
+      const mo = new MutationObserver(() => {
+        if (welcome.open) return;
+        mo.disconnect();
+        if (!toContact && !tourOff()) openTour();
+      });
+      mo.observe(welcome, { attributes: true, attributeFilter: ['open'] });
+    } else if (!/from=routes/.test(location.search)) openTour();
+  }
+
   // what routes.js uses of this page
   window.WR = { map, styleReady, metaReady, routesIndexReady, getJSON, vurl, viewParam, hereURL, FLY_SPEED, homeBox };
 

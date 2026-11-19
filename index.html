@@ -24,7 +24,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
   <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
-  <link href="style.css?v=86548f794e" rel="stylesheet">
+  <link href="style.css?v=3ad344030f" rel="stylesheet">
 </head>
 <!-- One page for the two tabs, Routes and buses and Jobs and essential services, on one map and one panel: a tab swaps
      the panel's contents and the map's layers without reloading (Sierra, 2026-11-17: "it would be cool if it doesnt
@@ -111,6 +111,9 @@
         <button type="button" id="welcome-open" class="link for-access">About this map</button>
         <button type="button" id="about-open" class="link for-access">About the data</button>
         <button type="button" id="about-routes-open" class="link for-routes">About these routes</button>
+        <!-- the walkthrough of the tab shown (Sierra, 2026-11-19: "can we add a walkthrough option that is a popup";
+             app.js, "The walkthrough") -->
+        <button type="button" id="tour-open" class="link">How to use</button>
         <button type="button" id="contact-open" class="link">Contact</button>
       </footer>
     </aside>
@@ -327,7 +330,30 @@
     <div id="about-routes-body"></div>
   </dialog>
 
+  <!-- the walkthrough (2026-11-19), in the manner of the Opportunity Atlas's "Get started" window (Sierra: "you can see
+       the opportunty atlas' maybe"): one window for the tab shown, listing the steps, each step's number drawn beside
+       the part of the page it names, and the rest of the page dimmed. The highlighted parts stay usable; a click on
+       the dimmed area, Esc or OK closes it. app.js fills it. -->
+  <div id="tour" hidden>
+    <svg class="tour-mask" aria-hidden="true"><path fill-rule="evenodd"></path></svg>
+    <div class="tour-badges" aria-hidden="true"></div>
+    <section class="tour-box" role="dialog" aria-modal="false" aria-labelledby="tour-title">
+      <button type="button" class="tour-close" aria-label="Close">&times;</button>
+      <div class="tour-kicker" id="tour-kicker"></div>
+      <h2 id="tour-title">Getting started</h2>
+      <p class="tour-lead" id="tour-lead"></p>
+      <ol class="tour-steps" id="tour-steps"></ol>
+      <div class="tour-foot">
+        <div class="tour-foot-left">
+          <button type="button" class="link" id="tour-other"></button>
+          <label class="tour-off"><input type="checkbox" id="tour-off"> Don't show this again</label>
+        </div>
+        <button type="button" class="btn-primary" id="tour-ok">OK</button>
+      </div>
+    </section>
+  </div>
+
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-  <script src="app.js?v=1006c5cc04"></script>
+  <script src="app.js?v=967a69ba29"></script>
 </body>
 </html>
