@@ -45,7 +45,7 @@
   let T = P0, playing = !still;
   let sel = null;            // the picked block group: {g, trips: Set, routes: [...], stops: [...], tag: [lng, lat]}
   let hoverG = '';           // the block group under the pointer
-  const show = { bus: true, rail: true, routes: true };   // the Buses, Rail and Routes boxes
+  const show = { bus: true, rail: true, routes: true };   // the Bus routes, Rail and Routes boxes
 
   let active = false;        // the tab is shown
   let view = null;           // what the tab shows: 'national' or 'metro' (null before the first)
@@ -190,7 +190,9 @@
     <svg width="54" height="22" aria-hidden="true"><circle cx="27" cy="11" r="9" fill="none" stroke="#d99a00" stroke-opacity="0.6"/><circle cx="27" cy="11" r="4.2" fill="#ffc61a" stroke="#1d2027" stroke-width="1.2"/></svg>
     <span>A bus on its schedule${X.anyRail ? ` (blue: ${other})` : ''}</span>
     <svg width="54" height="22" aria-hidden="true"><line x1="2" y1="6" x2="52" y2="6" stroke="#1d2027" stroke-width="4.5" stroke-linecap="round"/><line x1="2" y1="16" x2="52" y2="16" stroke="#1d2027" stroke-width="1.3" stroke-linecap="round"/></svg>
-    <span>Wider lines: more buses, 7 to 9 a.m.</span>`;
+    <span>Wider lines: more buses, 7 to 9 a.m.</span>
+    <svg width="54" height="22" aria-hidden="true"><circle cx="27" cy="11" r="4.5" fill="#ffffff" stroke="#1d2027" stroke-width="1.4"/></svg>
+    <span>A stop within a 5-minute walk of the selected block group</span>`;   // the white dots (Sierra, 2026-11-19: "the legend can have the white dots but doesnt need the tails")
     X.railText = hasRail && hasFerry ? 'Rail and ferries' : hasRail ? 'Rail' : 'Ferries';
     // About these routes: plain points under a few headers (Sierra, 2026-11-17: "simplify the about these routes, maybe
     // bullet points"; "simpler nad technical language"; "i dont like the bold with periods in the about. just sort it
@@ -200,8 +202,9 @@
     const sections = [
       ['Schedules', [
         meta.runs ? `${agList}, from GTFS files in the Transitland and Mobility Database archives.` : null,
-        meta.runs ? `${day}, the latest date behind the Jobs and essential services tab's ${meta.map_year} values on which every schedule file runs trips.`
-          : `${day}, the date behind the Jobs and essential services tab's ${meta.map_year} values.`,
+        meta.runs ? `The buses and trains follow the schedules for ${day}.` : `The map uses the schedules for ${day}.`,
+        meta.runs ? `The Jobs and essential services tab's ${meta.map_year} values use one weekday in each quarter of ${meta.map_year}; this is the latest of those days on which every schedule file runs trips.`
+          : `It is one of the days behind the Jobs and essential services tab's ${meta.map_year} values.`,
         meta.runs ? 'Vehicles are placed by their scheduled stop times, not live locations, and move along their routes between stops.' : null,
         meta.runs ? 'The clock runs from 6:30 to 9:30 a.m., at 3 minutes of schedule per second.' : null,
       ]],
@@ -212,6 +215,7 @@
       ['Selected block group', [
         meta.runs ? 'Only the vehicles that stop within 400 meters (a 5-minute walk) are shown.' : null,
         'Jobs within 30 minutes by public transit and by car with no traffic, as on the Jobs and essential services tab.',
+        `The public transit count is the median trip leaving between 7 and 9 a.m. on one weekday in each quarter of ${meta.map_year}, not only on the day the vehicles show.`,
       ]],
       ['Credits', ['Street map &copy; OpenStreetMap contributors.', 'Basemap by OpenFreeMap and OpenMapTiles.', 'Vehicles drawn with deck.gl.']],
     ];
@@ -325,7 +329,7 @@
     vis(BG_LAYERS, on);
     if (on) applyRouteVis(); else vis(ROUTE_LAYERS, false);
   }
-  // route lines by kind, as the Buses, Rail and Routes boxes say (the vehicles follow the same boxes in draw())
+  // route lines by kind, as the Bus routes, Rail and Routes boxes say (the vehicles follow the same boxes in draw())
   function applyRouteVis() {
     if (!layersMade) return;
     const kf = show.bus && show.rail ? null : show.bus ? ['==', ['get', 'kind'], 'bus']
@@ -620,6 +624,7 @@
     if (feat) { const b = bboxOf(feat.geometry); sel.tag = [(b[0][0] + b[1][0]) / 2, b[1][1]]; }
     applySel();
     renderCard();
+    WR.showCard(() => $('r-sel'));
   }
   // what a selection draws: the block group outlined over the faded others, its routes over the faded rest (once its
   // stop calls are in), its stops, the "Selected" tag
@@ -882,6 +887,9 @@
   });
   document.addEventListener('keydown', (e) => {
     if (!active || view !== 'metro') return;
+    // while a window or the walkthrough is open, Esc and Space are its own: Esc closes it and leaves the selection
+    // (Sierra, 2026-11-19: "Yes, fix it", after a first-time visitor's read found Esc clearing the block group)
+    if (e.defaultPrevented || document.querySelector('dialog[open]') || !document.getElementById('tour').hidden) return;
     if (e.key === 'Escape' && sel) unpick(true);
     if (e.code === 'Space' && !['INPUT', 'SELECT'].includes(e.target.tagName)) { e.preventDefault(); setPlaying(!playing); }
   });
@@ -924,16 +932,21 @@
       const m = metroAt(lng, lat);
       if (!m) { setStatus('That place is outside the mapped metros.'); return; }
       setStatus('');
+      // the block group at the place is selected, in the metro shown or in the one the search opens (Sierra,
+      // 2026-11-19: "the search thing should highlight a bg", after a first-time visitor's read found that a search
+      // from another view opened the metro and selected nothing)
+      const pickHere = () => {
+        if (!active || view !== 'metro' || !M || M.slug !== m.slug) return;
+        const f = map.queryRenderedFeatures(map.project([lng, lat]), { layers: ['r-bg-hit'] })[0];
+        if (f) pick(f.properties.g); else setStatus('No block group at that spot.');
+      };
       if (view === 'metro' && M && m.slug === M.slug) {
         map.flyTo({ center: [lng, lat], zoom: SEARCH_ZOOM, speed: WR.FLY_SPEED });
-        map.once('moveend', () => {
-          if (!active || view !== 'metro' || !M || M.slug !== m.slug) return;
-          const f = map.queryRenderedFeatures(map.project([lng, lat]), { layers: ['r-bg-hit'] })[0];
-          if (f) pick(f.properties.g); else setStatus('No block group at that spot.');
-        });
+        map.once('moveend', pickHere);
         return;
       }
-      openMetro(m.slug, { how: 'flyTo', camera: { center: [lng, lat], zoom: SEARCH_ZOOM }, push: true });
+      await openMetro(m.slug, { how: 'flyTo', camera: { center: [lng, lat], zoom: SEARCH_ZOOM }, push: true });
+      if (active && view === 'metro' && M && M.slug === m.slug) map.once('idle', pickHere);   // once its block groups are drawn
     } catch (err) {
       console.error(err);
       setStatus('Search is not available right now.');

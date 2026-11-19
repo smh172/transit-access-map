@@ -32,7 +32,7 @@
      build it"). data-tab is the tab the page opens on; routes.html is this page opening on the Routes and buses tab,
      written from this file by publish/make_routes_page.py, and the main address opens on that tab too (the script
      after the tabs). The routes tab's script, routes.js, loads on the first visit to that tab. -->
-<body data-tab="access" data-routes="routes.js?v=1aeaeadcae">
+<body data-tab="access" data-routes="routes.js?v=07f5c81d5b">
   <div id="app">
     <aside id="panel" aria-label="Search and details">
       <header class="brand">
@@ -221,7 +221,10 @@
             <div class="speednote">Sped up: 3 min/sec</div>
             <div class="section-title">Show</div>
             <div class="toggles">
-              <label><input type="checkbox" id="r-t-bus" checked> Buses</label>
+              <!-- "Bus routes", since the box shows or hides the buses and their route lines together (Sierra, 2026-11-19:
+                   "buses can be changed to bus routes"; asked to choose between Bus, Rail, Route lines and her wording:
+                   "Bus routes, as I said") -->
+              <label><input type="checkbox" id="r-t-bus" checked> Bus routes</label>
               <!-- rail on its own, for a metro whose bus schedules are incomplete (Sierra, 2026-11-17: "maybe for those
                    cities a just rail toggle"); shown where the metro has rail or ferries -->
               <label id="r-t-rail-label"><input type="checkbox" id="r-t-rail" checked> <span id="r-t-rail-text">Rail</span></label>
@@ -354,6 +357,6 @@
   </div>
 
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-  <script src="app.js?v=564a76882f"></script>
+  <script src="app.js?v=8fa2badef3"></script>
 </body>
 </html>

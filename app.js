@@ -687,7 +687,20 @@
       if (props.g !== S.pinnedProps.g) setCompare(id, props);
     } else {
       pin(id, props);
+      showCard(() => $('#card > :not(.back)'));
     }
+  }
+  // On a phone the panel is a short scrolling box under the map, so a selected block group's card is scrolled to its
+  // top, below whatever was above it (Sierra, 2026-11-19: "you can do your reccomended", after a first-time visitor's
+  // read found the card's numbers below the fold with nothing saying to scroll)
+  function showCard(get) {   // get: the card, found after it is drawn
+    if (!phone.matches) return;
+    requestAnimationFrame(() => {
+      const el = get();
+      const pb = el && el.closest('.panel-body');
+      if (!pb) return;
+      pb.scrollBy({ top: el.getBoundingClientRect().top - pb.getBoundingClientRect().top - 8, behavior: 'smooth' });
+    });
   }
 
   function pin(id, props) {
@@ -1534,24 +1547,25 @@
       name: 'Jobs and essential services',
       lead: 'Start with a question, such as how many jobs the residents of your neighborhood can reach within 30 minutes by public transit.',
       steps: [
-        { d: 'Switch between the map’s two tabs, Routes and buses and Jobs and essential services. Each tab has its own walkthrough.', at: ['#panel .views'] },
         { d: 'Search for an address or choose a metro. On the national map, select a circle to open its metro.', at: ['#search', '#metro'] },
         { d: 'Choose what the map counts, jobs or one of five services, and whether it shows trips by public transit, by car, or how many times more a car reaches.', at: ['#controls .layers', '#controls .modes'] },
         { d: 'Move the slider to set the travel time, from 15 to 60 minutes.', at: ['#controls .time'] },
         { d: 'Keep only the block groups of one income group, a share of households without a car, a race and ethnicity group, or a share below twice the poverty line.', at: ['#controls .filters'] },
-        { d: 'Select a block group to see its counts and census values here, and compare it with another block group.', at: ['#card'] },
+        { d: 'In a metro, select a block group on the map to see its counts and census values in the panel, and to compare it with another block group.',
+          at: ['#card > :not(.back)'] },
       ],
     },
     routes: {
       name: 'Routes and buses',
       lead: 'Start with a place, such as where you live or work, and watch its buses and trains on a weekday morning.',
       steps: [
-        { d: 'Switch between the map’s two tabs, Routes and buses and Jobs and essential services. Each tab has its own walkthrough.', at: ['#panel .views'] },
+        { d: 'Switch between the map’s two tabs, Routes and buses and Jobs and essential services. Each tab has its own walkthrough.', at: ['#panel .views'], hole: ['#panel .brand'] },
         { d: 'Search for an address or choose a metro. On the national map, select a circle to open its metro.', at: ['#search', '#metro'] },
-        { d: 'The buses and trains move on one weekday’s schedules from 6:30 to 9:30 a.m. Pause them, or drag the time.', at: ['#r-options .clock', '#r-options .play-row'] },
-        { d: 'Check or clear the boxes to show or hide the buses, the rail lines and the routes.', at: ['#r-options .toggles'] },
-        { d: 'The greens show jobs per square mile: in a metro, of each block group; on the national map, of each metro’s central business district.', at: ['#legend'] },
-        { d: 'Select a block group to see the buses that stop near it and the jobs it can reach.', at: ['#r-clickhint', '#r-sel'] },
+        { d: 'In a metro, the buses and trains move on one weekday’s schedules from 6:30 to 9:30 a.m. Pause them, or drag the time.', at: ['#r-options .clock', '#r-options .play-row'] },
+        { d: 'In a metro, the boxes under Show hide or show the bus routes and their buses, the rail lines and the routes.', at: ['#r-options .toggles'] },
+        { d: 'The greens in the legend show jobs per square mile: in a metro, of each block group; on the national map, of each metro’s central business district.', at: ['#legend'] },
+        { d: 'In a metro, select a block group on the map to see, in the panel, the buses that stop near it and the jobs it can reach.',
+          at: () => ($('#r-back').hidden ? ['#r-sel'] : ['#r-clickhint', '#r-sel']) },   // no number on the national map
       ],
     },
   };
@@ -1565,15 +1579,30 @@
   // the box around the visible parts of a step (null when none is on screen)
   function tourRect(sels) {
     let r = null;
-    sels.forEach((s) => {
-      const el = $(s);
-      if (!el) return;
+    (typeof sels === 'function' ? sels() : sels).forEach((s) => document.querySelectorAll(s).forEach((el) => {
       const b = el.getBoundingClientRect();
       if (!b.width || !b.height) return;
       r = r ? { left: Math.min(r.left, b.left), top: Math.min(r.top, b.top), right: Math.max(r.right, b.right),
         bottom: Math.max(r.bottom, b.bottom) } : { left: b.left, top: b.top, right: b.right, bottom: b.bottom };
-    });
+    }));
     return r;
+  }
+  // Holes that touch are drawn as one: with the even-odd rule, an overlap of two holes is dimmed again, which cut
+  // into "Map shows" and the travel-time labels (the first-time visitor's read, 2026-11-19)
+  function mergeHoles(rs) {
+    const out = rs.map((r) => ({ ...r }));
+    for (let i = 0; i < out.length; i++) {
+      for (let j = i + 1; j < out.length; j++) {
+        const a = out[i], c = out[j];
+        if (a.left <= c.right && c.left <= a.right && a.top <= c.bottom && c.top <= a.bottom) {
+          out[i] = { left: Math.min(a.left, c.left), top: Math.min(a.top, c.top), right: Math.max(a.right, c.right),
+            bottom: Math.max(a.bottom, c.bottom) };
+          out.splice(j, 1);
+          j = i;   // the grown hole may now touch one already passed
+        }
+      }
+    }
+    return out;
   }
   function roundRect(x, y, w, h, r) {
     r = Math.min(r, w / 2, h / 2);
@@ -1589,11 +1618,12 @@
     const small = phone.matches;
     const steps = TOUR[S.tab].steps;
     const rects = small ? [] : steps.map((s) => tourRect(s.at));
+    const holes = small ? [] : steps.map((s, i) => (s.hole ? tourRect(s.hole) : rects[i]));
     const st = $('#stage').getBoundingClientRect();
     const ctl = controls.parentElement === $('#stage') && !controls.classList.contains('collapsed')
       ? controls.getBoundingClientRect() : null;
     const key = [W, H, small, S.tab, st.left, ctl && ctl.left,
-      ...rects.map((r) => (r ? [r.left, r.top, r.right, r.bottom].map(Math.round).join(',') : '-'))].join('|');
+      ...rects.concat(holes).map((r) => (r ? [r.left, r.top, r.right, r.bottom].map(Math.round).join(',') : '-'))].join('|');
     if (key === tourKey) return;
     tourKey = key;
 
@@ -1601,8 +1631,10 @@
     svg.setAttribute('width', W);
     svg.setAttribute('height', H);
     const pad = 4;
-    svg.querySelector('path').setAttribute('d', `M0,0H${W}V${H}H0Z` + rects.filter(Boolean).map((r) =>
-      roundRect(r.left - pad, r.top - pad, r.right - r.left + 2 * pad, r.bottom - r.top + 2 * pad, 8)).join(''));
+    const padded = holes.filter(Boolean).map((r) => ({ left: r.left - pad, top: r.top - pad, right: r.right + pad,
+      bottom: r.bottom + pad }));
+    svg.querySelector('path').setAttribute('d', `M0,0H${W}V${H}H0Z` + mergeHoles(padded).map((r) =>
+      roundRect(r.left, r.top, r.right - r.left, r.bottom - r.top, 8)).join(''));
 
     const badges = tour.querySelector('.tour-badges');
     badges.innerHTML = rects.map((r, i) => {
@@ -1708,7 +1740,7 @@
   }
 
   // what routes.js uses of this page
-  window.WR = { map, styleReady, metaReady, routesIndexReady, getJSON, vurl, viewParam, hereURL, FLY_SPEED, homeBox };
+  window.WR = { map, styleReady, metaReady, routesIndexReady, getJSON, vurl, viewParam, hereURL, FLY_SPEED, homeBox, showCard };
 
   markTab();
   if (S.tab === 'access') startAccess();
