@@ -24,7 +24,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
   <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
-  <link href="style.css?v=57e1e47d2a" rel="stylesheet">
+  <link href="style.css?v=8c805bf832" rel="stylesheet">
 </head>
 <!-- One page for the two tabs, Routes and buses and Jobs and essential services, on one map and one panel: a tab swaps
      the panel's contents and the map's layers without reloading (Sierra, 2026-11-17: "it would be cool if it doesnt
@@ -108,9 +108,12 @@
       </div>
 
       <footer class="panel-foot">
-        <button type="button" id="welcome-open" class="link for-access">About this map</button>
+        <!-- the same four links on both tabs; each tab's "About the data" opens the window for what that tab draws
+             (Sierra, 2026-11-19: "the about the data is only on the second tab"; asked how the routes tab's footer
+             should change: "Same four links") -->
+        <button type="button" id="welcome-open" class="link">About this map</button>
         <button type="button" id="about-open" class="link for-access">About the data</button>
-        <button type="button" id="about-routes-open" class="link for-routes">About these routes</button>
+        <button type="button" id="about-routes-open" class="link for-routes">About the data</button>
         <!-- the walkthrough of the tab shown (Sierra, 2026-11-19: "can we add a walkthrough option that is a popup";
              app.js, "The walkthrough") -->
         <button type="button" id="tour-open" class="link">How to use</button>
@@ -354,6 +357,6 @@
   </div>
 
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-  <script src="app.js?v=7d1d6469e9"></script>
+  <script src="app.js?v=eee226703f"></script>
 </body>
 </html>

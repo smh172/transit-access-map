@@ -449,13 +449,14 @@ body[data-tab="routes"] .bg-tip .maplibregl-popup-content span.act { margin-top:
 .tour-box.small .btn-primary { width: 100%; }
 .tour-off { display: flex; align-items: center; gap: 6px; font-size: 13.5px; color: var(--muted); cursor: pointer; }
 .tour-off input { margin: 0; accent-color: var(--accent); }
-/* the numbers sit over the window, so they float out of its list (app.js, flyBadges); on closing, the dimming and
-   the numbers fade while the window floats into "How to use", which then lights up */
+/* the numbers sit over the window, so they float out of its list (app.js, playTour); on closing, the dimming and
+   the numbers fade while the window floats into "How to use", which then flashes in the tab's color, three times
+   (Sierra, 2026-11-19: "the how to use needs to flash a darker color or otherwise more obviously") */
 .tour-box { z-index: 1; }
 .tour-badges { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
 #tour.leaving .tour-mask, #tour.leaving .tour-badges { opacity: 0; transition: opacity 0.35s ease-in; }
 #tour.leaving, #tour.leaving * { pointer-events: none !important; }
-@keyframes tour-here { 0%, 100% { background: transparent; box-shadow: 0 0 0 0 transparent; }
-  40% { background: color-mix(in srgb, var(--accent) 16%, transparent);
-        box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 16%, transparent); } }
-.link.tour-here { border-radius: 4px; animation: tour-here 0.9s ease-in-out 2; }
+@keyframes tour-here { 0%, 100% { background: transparent; color: var(--accent); box-shadow: 0 0 0 0 transparent; }
+  35%, 65% { background: var(--accent); color: #fff;
+             box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 30%, transparent); } }
+.link.tour-here { border-radius: 4px; padding: 2px 6px; margin: -2px -6px; animation: tour-here 0.8s ease-in-out 3; }

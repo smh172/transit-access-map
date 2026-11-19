@@ -1546,26 +1546,28 @@
     access: {
       name: 'Jobs and essential services',
       lead: 'Start with a question, such as how many jobs the residents of your neighborhood can reach within 30 minutes by public transit.',
+      // one short sentence each, as on the routes tab (Sierra, 2026-11-19: "yes simplify the jobs tab steps too")
       steps: [
-        { d: 'Search for an address or choose a metro. On the national map, select a circle to open its metro.', at: ['#search', '#metro'] },
-        { d: 'Choose what the map counts, jobs or one of five services, and whether it shows trips by public transit, by car, or how many times more a car reaches.', at: ['#controls .layers', '#controls .modes'] },
-        { d: 'Move the slider to set the travel time, from 15 to 60 minutes.', at: ['#controls .time'] },
-        { d: 'Keep only the block groups of one income group, a share of households without a car, a race and ethnicity group, or a share below twice the poverty line.', at: ['#controls .filters'] },
-        { d: 'In a metro, select a block group on the map to see its counts and census values in the panel, and to compare it with another block group.',
-          at: ['#card > :not(.back)'] },
+        { d: 'Search for an address, or choose a metro in the menu or on the map.', at: ['#search', '#metro'] },
+        { d: 'Choose jobs or a service, and travel by public transit or by car.', at: ['#controls .layers', '#controls .modes'] },
+        { d: 'Set the travel time, from 15 to 60 minutes.', at: ['#controls .time'] },
+        { d: 'Filter the block groups by income, car ownership, race and ethnicity, or poverty.', at: ['#controls .filters'] },
+        { d: 'In a metro, select a block group to see its counts and compare it with another.', at: ['#card > :not(.back)'] },
       ],
     },
     routes: {
       name: 'Routes and buses',
       lead: 'Start with a place, such as where you live or work, and watch its buses and trains on a weekday morning.',
+      // one short sentence each (Sierra, 2026-11-19: "maybe too much text, if each of the 6 steps can be simplified");
+      // the sixth's number is beside the panel's hint on the national map too, where the block group's details will
+      // show ("and then 6 never appears")
       steps: [
-        { d: 'Switch between the map’s two tabs, Routes and buses and Jobs and essential services. Each tab has its own walkthrough.', at: ['#panel .views'], hole: ['#panel .brand'] },
-        { d: 'Search for an address or choose a metro. On the national map, select a circle to open its metro.', at: ['#search', '#metro'] },
-        { d: 'In a metro, the buses and trains move on one weekday’s schedules from 6:30 to 9:30 a.m. Pause them, or drag the time.', at: ['#r-options .clock', '#r-options .play-row'] },
-        { d: 'In a metro, the boxes under Show hide or show the bus routes and their buses, the rail lines and the routes.', at: ['#r-options .toggles'] },
-        { d: 'The greens in the legend show jobs per square mile: in a metro, of each block group; on the national map, of each metro’s central business district.', at: ['#legend'] },
-        { d: 'In a metro, select a block group on the map to see, in the panel, the buses that stop near it and the jobs it can reach.',
-          at: () => ($('#r-back').hidden ? ['#r-sel'] : ['#r-clickhint', '#r-sel']) },   // no number on the national map
+        { d: 'Switch between the map’s two tabs.', at: ['#panel .views'], hole: ['#panel .brand'] },
+        { d: 'Search for an address, or choose a metro in the menu or on the map.', at: ['#search', '#metro'] },
+        { d: 'Pause the buses and trains, or drag the time between 6:30 and 9:30 a.m.', at: ['#r-options .clock', '#r-options .play-row'] },
+        { d: 'Show or hide bus routes, rail and route lines.', at: ['#r-options .toggles'] },
+        { d: 'Darker greens mean more jobs per square mile.', at: ['#legend'] },
+        { d: 'In a metro, select a block group to see its nearby buses and the jobs it can reach.', at: ['#r-clickhint', '#r-sel'] },
       ],
     },
   };
@@ -1676,40 +1678,46 @@
     tourSeen[S.tab] = true;
     tourKey = '';
   }
-  // The numbers float out of the window's list to their places, one after another, as the Opportunity Atlas's do
-  // (Sierra, 2026-11-19: "i like on the opportunity atlas it kind of floats to the numbers"). Not on phones, which
-  // show no numbers on the page, nor where the viewer asks for less motion.
+  // The steps arrive one at a time, as the Opportunity Atlas's do: a step's text appears, its number floats out of the
+  // window's list to its place on the page, and the next step follows once it has landed (Sierra, 2026-11-19: "i like
+  // on the opportunity atlas it kind of floats to the numbers"; then "it goes too fast, and on the opp atlas each text
+  // appears as the number moved"). Not on phones, which show no numbers on the page, nor where the viewer asks for
+  // less motion: there every step shows at once.
   const calm = window.matchMedia('(prefers-reduced-motion: reduce)');
-  function flyBadges() {
+  const TOUR_FIRST = 400;   // ms before the first step
+  const TOUR_STEP = 1500;   // ms from one step to the next
+  const TOUR_FLY = 1100;    // ms a number takes to float to its place
+  function stopTourMotion() {
+    tour.querySelectorAll('.tour-steps li, .tour-badge').forEach((el) => el.getAnimations().forEach((a) => a.cancel()));
+  }
+  function playTour() {
+    stopTourMotion();
     if (calm.matches || phone.matches || tour.hidden) return;
-    const nums = [...tour.querySelectorAll('.tour-steps .tour-num')];
     const bs = [...tour.querySelectorAll('.tour-badge')];
-    bs.forEach((el, i) => {
-      el.style.transition = 'none';
-      el.style.translate = '';
-      if (el.style.display === 'none' || !nums[i]) return;
-      const a = nums[i].getBoundingClientRect();
+    tour.querySelectorAll('.tour-steps li').forEach((li, i) => {
+      const t = TOUR_FIRST + i * TOUR_STEP;
+      li.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 350, delay: t, fill: 'backwards', easing: 'ease-out' });
+      const el = bs[i];
+      if (!el) return;
+      el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 350, delay: t, fill: 'backwards' });
+      if (el.style.display === 'none') return;   // its part is not on screen yet: the number appears in its place, with its text
+      const a = li.querySelector('.tour-num').getBoundingClientRect();
       const b = el.getBoundingClientRect();
-      el.style.translate = `${Math.round(a.left + a.width / 2 - (b.left + b.width / 2))}px ${Math.round(a.top + a.height / 2 - (b.top + b.height / 2))}px`;
-    });
-    void tour.offsetWidth;   // the start is drawn before the move begins
-    let k = 0;
-    bs.forEach((el) => {
-      if (el.style.display === 'none' || !el.style.translate) return;
-      el.style.transition = `translate 0.9s cubic-bezier(0.22, 1, 0.36, 1) ${(0.35 + 0.4 * k++).toFixed(2)}s`;
-      el.style.translate = '';
+      const from = `${Math.round(a.left + a.width / 2 - (b.left + b.width / 2))}px ${Math.round(a.top + a.height / 2 - (b.top + b.height / 2))}px`;
+      el.animate([{ translate: from }, { translate: '0px 0px' }],
+        { duration: TOUR_FLY, delay: t + 300, fill: 'backwards', easing: 'cubic-bezier(0.45, 0, 0.25, 1)' });
     });
   }
   function openTour() {
     if (closing) finishClose(false);
-    if (!tour.hidden) { fillTour(); layoutTour(); flyBadges(); return; }
+    if (!tour.hidden) { fillTour(); layoutTour(); playTour(); return; }
     if (controls.classList.contains('collapsed')) $('#controls-toggle').click();   // its parts are steps
     tourReturn = document.activeElement;
     $('#tour-off').checked = tourOff();
     fillTour();
     tour.hidden = false;
     layoutTour();
-    flyBadges();
+    playTour();
     tourFrame = requestAnimationFrame(tourLoop);
     $('#tour-ok').focus();
   }
@@ -1724,6 +1732,7 @@
     tour.hidden = true;
     tour.classList.remove('leaving');
     ['transition', 'transform', 'transformOrigin', 'opacity', 'top'].forEach((p) => { tourBox.style[p] = ''; });
+    stopTourMotion();
     tourKey = '';
     const help = $('#tour-open');
     help.classList.remove('tour-here');
@@ -1789,7 +1798,7 @@
   // 2026-11-19: "because it just opens on the one version of the map, theres no walkthrough for the other version");
   // Back and Forward do not. A switch while the walkthrough is open shows the new tab's.
   function tourAfterSwitch() {
-    if (!tour.hidden && !closing) { fillTour(); layoutTour(); flyBadges(); return; }
+    if (!tour.hidden && !closing) { fillTour(); layoutTour(); playTour(); return; }
     if (!tourSeen[S.tab] && !tourOff()) openTour();
   }
 
