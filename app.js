@@ -1637,12 +1637,18 @@
       roundRect(r.left, r.top, r.right - r.left, r.bottom - r.top, 8)).join(''));
 
     const badges = tour.querySelector('.tour-badges');
-    badges.innerHTML = rects.map((r, i) => {
-      if (!r) return '';
+    while (badges.children.length < rects.length) badges.appendChild(Object.assign(document.createElement('span'), { className: 'tour-badge' }));
+    while (badges.children.length > rects.length) badges.lastChild.remove();
+    rects.forEach((r, i) => {
+      const el = badges.children[i];
+      el.textContent = i + 1;
+      if (!r) { el.style.display = 'none'; return; }
       const x = r.right + 30 < W ? r.right + 16 : r.left - 16;   // beside the part, on its right where there is room
       const y = r.top + Math.min((r.bottom - r.top) / 2, 20);
-      return `<span class="tour-badge" style="left:${Math.round(x)}px;top:${Math.round(y)}px">${i + 1}</span>`;
-    }).join('');
+      el.style.display = '';
+      el.style.left = `${Math.round(x)}px`;
+      el.style.top = `${Math.round(y)}px`;
+    });
 
     tourBox.classList.toggle('small', small);
     if (small) { tourBox.style.left = tourBox.style.top = tourBox.style.width = ''; return; }
@@ -1663,44 +1669,92 @@
 
   function fillTour() {
     const T = TOUR[S.tab];
-    const other = S.tab === 'access' ? 'routes' : 'access';
     $('#tour-kicker').textContent = T.name;
     $('#tour-lead').textContent = T.lead;
     $('#tour-steps').innerHTML = T.steps.map((s, i) =>
       `<li><span class="tour-num" aria-hidden="true">${i + 1}</span><div>${s.d}</div></li>`).join('');
-    $('#tour-other').textContent = `How to use the ${TOUR[other].name} tab`;
     tourSeen[S.tab] = true;
     tourKey = '';
   }
+  // The numbers float out of the window's list to their places, one after another, as the Opportunity Atlas's do
+  // (Sierra, 2026-11-19: "i like on the opportunity atlas it kind of floats to the numbers"). Not on phones, which
+  // show no numbers on the page, nor where the viewer asks for less motion.
+  const calm = window.matchMedia('(prefers-reduced-motion: reduce)');
+  function flyBadges() {
+    if (calm.matches || phone.matches || tour.hidden) return;
+    const nums = [...tour.querySelectorAll('.tour-steps .tour-num')];
+    const bs = [...tour.querySelectorAll('.tour-badge')];
+    bs.forEach((el, i) => {
+      el.style.transition = 'none';
+      el.style.translate = '';
+      if (el.style.display === 'none' || !nums[i]) return;
+      const a = nums[i].getBoundingClientRect();
+      const b = el.getBoundingClientRect();
+      el.style.translate = `${Math.round(a.left + a.width / 2 - (b.left + b.width / 2))}px ${Math.round(a.top + a.height / 2 - (b.top + b.height / 2))}px`;
+    });
+    void tour.offsetWidth;   // the start is drawn before the move begins
+    let k = 0;
+    bs.forEach((el) => {
+      if (el.style.display === 'none' || !el.style.translate) return;
+      el.style.transition = `translate 0.9s cubic-bezier(0.22, 1, 0.36, 1) ${(0.35 + 0.4 * k++).toFixed(2)}s`;
+      el.style.translate = '';
+    });
+  }
   function openTour() {
-    if (!tour.hidden) { fillTour(); return; }
+    if (closing) finishClose(false);
+    if (!tour.hidden) { fillTour(); layoutTour(); flyBadges(); return; }
     if (controls.classList.contains('collapsed')) $('#controls-toggle').click();   // its parts are steps
     tourReturn = document.activeElement;
     $('#tour-off').checked = tourOff();
     fillTour();
     tour.hidden = false;
     layoutTour();
+    flyBadges();
     tourFrame = requestAnimationFrame(tourLoop);
     $('#tour-ok').focus();
   }
-  function closeTour() {
-    if (tour.hidden) return;
+  // On closing, the window floats into "How to use" in the panel's footer, the way back to it, which then lights up
+  // (Sierra, 2026-11-19: "it should also point to where to find the instructions again, or float over to that spot as
+  // it disappears")
+  let closing = 0;
+  function finishClose(point) {
+    clearTimeout(closing);
+    closing = 0;
     cancelAnimationFrame(tourFrame);
     tour.hidden = true;
+    tour.classList.remove('leaving');
+    ['transition', 'transform', 'transformOrigin', 'opacity', 'top'].forEach((p) => { tourBox.style[p] = ''; });
+    tourKey = '';
+    const help = $('#tour-open');
+    help.classList.remove('tour-here');
+    if (point) { void help.offsetWidth; help.classList.add('tour-here'); }
+  }
+  function closeTour() {
+    if (tour.hidden || closing) return;
     if (tourReturn && document.contains(tourReturn)) tourReturn.focus();
     tourReturn = null;
+    const h = $('#tour-open').getBoundingClientRect();
+    if (calm.matches || !h.width) { finishClose(true); return; }
+    cancelAnimationFrame(tourFrame);   // held where it is while it goes
+    const b = tourBox.getBoundingClientRect();
+    tourBox.style.transition = 'none';
+    tourBox.style.top = `${b.top}px`;
+    tourBox.style.transform = 'none';
+    tourBox.style.transformOrigin = `${Math.round(h.left + h.width / 2 - b.left)}px ${Math.round(h.top + h.height / 2 - b.top)}px`;
+    void tourBox.offsetWidth;
+    tourBox.style.transition = 'transform 0.5s cubic-bezier(0.55, 0, 0.75, 0.4), opacity 0.5s ease-in';
+    tourBox.style.transform = 'scale(0.04)';
+    tourBox.style.opacity = '0';
+    tour.classList.add('leaving');
+    closing = setTimeout(() => finishClose(true), 520);
   }
+  $('#tour-open').addEventListener('animationend', (e) => e.currentTarget.classList.remove('tour-here'));
   $('#tour-open').addEventListener('click', openTour);
   $('#tour-ok').addEventListener('click', closeTour);
   tour.querySelector('.tour-close').addEventListener('click', closeTour);
   tour.querySelector('.tour-mask path').addEventListener('click', closeTour);
-  $('#tour-other').addEventListener('click', () => {   // the other tab, then its walkthrough
-    const tab = S.tab === 'access' ? 'routes' : 'access';
-    switchTab(tab, tab === 'routes' ? routesHref() : accessHref());
-    fillTour();
-  });
   document.addEventListener('keydown', (e) => {
-    if (tour.hidden) return;
+    if (tour.hidden || closing) return;
     if (e.key === 'Escape') { e.preventDefault(); closeTour(); return; }
     if (e.key !== 'Tab' || !tourBox.contains(document.activeElement)) return;
     const f = [...tourBox.querySelectorAll('button, input')];   // Tab cycles through the window's controls
@@ -1735,7 +1789,7 @@
   // 2026-11-19: "because it just opens on the one version of the map, theres no walkthrough for the other version");
   // Back and Forward do not. A switch while the walkthrough is open shows the new tab's.
   function tourAfterSwitch() {
-    if (!tour.hidden) { fillTour(); return; }
+    if (!tour.hidden && !closing) { fillTour(); layoutTour(); flyBadges(); return; }
     if (!tourSeen[S.tab] && !tourOff()) openTour();
   }
 

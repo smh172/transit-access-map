@@ -444,10 +444,18 @@ body[data-tab="routes"] .bg-tip .maplibregl-popup-content span.act { margin-top:
 .tour-steps li { display: flex; gap: 10px; align-items: flex-start; }
 .tour-steps .tour-num { flex: none; width: 24px; height: 24px; font-size: 13px; }
 .tour-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-.tour-foot .link { font-size: 13.5px; text-align: left; }
 .tour-box.small { left: 12px; right: 12px; top: 50%; transform: translateY(-50%); max-height: calc(100% - 24px); }
 .tour-box.small .tour-foot { flex-direction: column-reverse; align-items: stretch; }
 .tour-box.small .btn-primary { width: 100%; }
-.tour-foot-left { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; }
 .tour-off { display: flex; align-items: center; gap: 6px; font-size: 13.5px; color: var(--muted); cursor: pointer; }
 .tour-off input { margin: 0; accent-color: var(--accent); }
+/* the numbers sit over the window, so they float out of its list (app.js, flyBadges); on closing, the dimming and
+   the numbers fade while the window floats into "How to use", which then lights up */
+.tour-box { z-index: 1; }
+.tour-badges { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+#tour.leaving .tour-mask, #tour.leaving .tour-badges { opacity: 0; transition: opacity 0.35s ease-in; }
+#tour.leaving, #tour.leaving * { pointer-events: none !important; }
+@keyframes tour-here { 0%, 100% { background: transparent; box-shadow: 0 0 0 0 transparent; }
+  40% { background: color-mix(in srgb, var(--accent) 16%, transparent);
+        box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 16%, transparent); } }
+.link.tour-here { border-radius: 4px; animation: tour-here 0.9s ease-in-out 2; }
