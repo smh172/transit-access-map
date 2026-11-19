@@ -1503,6 +1503,7 @@
       if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       e.preventDefault();
       switchTab(tab, a.href);
+      tourAfterSwitch();
     });
   });
 
@@ -1533,6 +1534,7 @@
       name: 'Jobs and essential services',
       lead: 'Start with a question, such as how many jobs the residents of your neighborhood can reach within 30 minutes by public transit.',
       steps: [
+        { d: 'Switch between the map’s two tabs, Routes and buses and Jobs and essential services. Each tab has its own walkthrough.', at: ['#panel .views'] },
         { d: 'Search for an address or choose a metro. On the national map, select a circle to open its metro.', at: ['#search', '#metro'] },
         { d: 'Choose what the map counts, jobs or one of five services, and whether it shows trips by public transit, by car, or how many times more a car reaches.', at: ['#controls .layers', '#controls .modes'] },
         { d: 'Move the slider to set the travel time, from 15 to 60 minutes.', at: ['#controls .time'] },
@@ -1544,6 +1546,7 @@
       name: 'Routes and buses',
       lead: 'Start with a place, such as where you live or work, and watch its buses and trains on a weekday morning.',
       steps: [
+        { d: 'Switch between the map’s two tabs, Routes and buses and Jobs and essential services. Each tab has its own walkthrough.', at: ['#panel .views'] },
         { d: 'Search for an address or choose a metro. On the national map, select a circle to open its metro.', at: ['#search', '#metro'] },
         { d: 'The buses and trains move on one weekday’s schedules from 6:30 to 9:30 a.m. Pause them, or drag the time.', at: ['#r-options .clock', '#r-options .play-row'] },
         { d: 'Check or clear the boxes to show or hide the buses, the rail lines and the routes.', at: ['#r-options .toggles'] },
@@ -1557,6 +1560,7 @@
   let tourFrame = 0;
   let tourKey = '';
   let tourReturn = null;
+  const tourSeen = {};   // the tabs whose walkthrough has been shown on this visit
 
   // the box around the visible parts of a step (null when none is on screen)
   function tourRect(sels) {
@@ -1633,6 +1637,7 @@
     $('#tour-steps').innerHTML = T.steps.map((s, i) =>
       `<li><span class="tour-num" aria-hidden="true">${i + 1}</span><div>${s.d}</div></li>`).join('');
     $('#tour-other').textContent = `How to use the ${TOUR[other].name} tab`;
+    tourSeen[S.tab] = true;
     tourKey = '';
   }
   function openTour() {
@@ -1692,6 +1697,14 @@
       });
       mo.observe(welcome, { attributes: true, attributeFilter: ['open'] });
     } else if (!/from=routes/.test(location.search)) openTour();
+  }
+
+  // The first switch to the other tab on a visit opens that tab's walkthrough, unless it was turned off (Sierra,
+  // 2026-11-19: "because it just opens on the one version of the map, theres no walkthrough for the other version");
+  // Back and Forward do not. A switch while the walkthrough is open shows the new tab's.
+  function tourAfterSwitch() {
+    if (!tour.hidden) { fillTour(); return; }
+    if (!tourSeen[S.tab] && !tourOff()) openTour();
   }
 
   // what routes.js uses of this page
