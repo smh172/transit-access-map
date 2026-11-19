@@ -869,6 +869,17 @@
       showNational({ push: true });
     }
   });
+  // Panning a metro over another one opens that one where the map is, as zooming in does from the national map
+  // (Sierra, 2026-11-19: "its weird i can be in philly, drag over to ny and then ny doesnt load"; asked "Build the
+  // routes tab opening the metro you pan into?": "Yes, build it"): when the middle of the map, at the metro scale,
+  // has left the metro shown and lies in another. Still one metro at a time, so only its files load.
+  map.on('moveend', () => {
+    if (!active || moving || quiet || view !== 'metro' || !M || !M.rec.bbox || map.getZoom() < 8) return;
+    const c = map.getCenter();
+    if (inBox(M.rec.bbox, c.lng, c.lat)) return;
+    const hit = metroAt(c.lng, c.lat);
+    if (hit && hit.slug !== M.slug) openMetro(hit.slug, { how: 'stay', push: true });
+  });
   document.addEventListener('keydown', (e) => {
     if (!active || view !== 'metro') return;
     if (e.key === 'Escape' && sel) unpick(true);
